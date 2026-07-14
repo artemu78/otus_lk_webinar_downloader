@@ -1,33 +1,60 @@
-# OTUS Webinar Downloader
+# Загрузчик вебинаров OTUS
 
-Dependency-free Chrome Manifest V3 extension. On an OTUS teacher lesson page it:
+Расширение для Chrome на базе Manifest V3, не требующее установки зависимостей. На странице занятия преподавателя OTUS оно:
 
-1. Extracts the program and lesson IDs from the active tab URL.
-2. Fetches the authenticated lesson API response.
-3. Selects the first media item with `type === "webinar"` and `is_private === false`.
-4. Starts the recording download through Chrome's Downloads API.
-5. Generates either attendance report, copies it as TSV, and opens a new Google
-   spreadsheet with a short paste instruction.
+1. Извлекает идентификаторы программы и занятия из URL-адреса активной вкладки.
+2. Получает данные занятия через API, используя текущую авторизованную сессию.
+3. Выбирает первый доступный всем элемент с записью вебинара (`type === "webinar"` и `is_private === false`).
+4. Запускает скачивание записи через Chrome Downloads API.
+5. Формирует один из двух отчётов о посещаемости, копирует его в формате TSV и открывает новую Google Таблицу с краткой инструкцией по вставке данных.
 
-## Install
+## Как установить
 
-1. Open `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Click **Load unpacked** and select this directory.
-4. Open a URL shaped like `https://otus.ru/teacher-lk/programs/3616/127815/...` while signed in.
-5. Click the extension icon and choose the required action.
+### 1. Скачайте расширение
 
-For either attendance report, wait while the extension collects the program data.
-It will copy the completed table and open a blank Google spreadsheet. Paste into
-the selected `A1` cell with **Cmd+V** on macOS or **Ctrl+V** on Windows/Linux.
+На странице репозитория нажмите **Code**, затем **Download ZIP**. Распакуйте скачанный архив.
 
-## Test
+![Скачивание ZIP-архива расширения](help/1.png)
+
+### 2. Откройте страницу расширений Chrome
+
+Перейдите по адресу `chrome://extensions`, включите **Режим разработчика** и нажмите **Загрузить распакованное расширение**.
+
+![Включение режима разработчика и загрузка расширения](help/2.png)
+
+### 3. Выберите папку расширения
+
+В открывшемся окне выберите папку с содержимым распакованного ZIP-архива и нажмите **Выбрать**.
+
+![Выбор папки с распакованным расширением](help/3.png)
+
+### 4. Закрепите расширение
+
+Откройте меню расширений Chrome и нажмите значок булавки рядом с расширением **Загрузчик вебинаров OTUS**, чтобы его значок всегда отображался на панели браузера.
+
+![Закрепление расширения на панели Chrome](help/4.png)
+
+### 5. Откройте занятие в OTUS
+
+Авторизуйтесь в OTUS и откройте страницу занятия с адресом вида `https://otus.ru/teacher-lk/programs/3616/127815/...`. Нажмите значок расширения и выберите нужное действие.
+
+![Скачивание вебинара на странице занятия OTUS](help/5.png)
+
+При формировании любого из отчётов о посещаемости дождитесь, пока расширение соберёт данные программы. Готовая таблица будет скопирована в буфер обмена, после чего откроется новая Google Таблица. Выберите ячейку `A1` и вставьте данные с помощью **Cmd+V** в macOS или **Ctrl+V** в Windows/Linux.
+
+## Безопасность
+
+Все данные о занятии и посещаемости извлекаются через API OTUS, используя текущую авторизованную сессию. Расширение не хранит и не передаёт эти данные. Все преобразования выполняются локально в браузере, а готовый отчёт копируется в буфер обмена и открывается в новой Google Таблице.
+
+## Как запустить тесты
 
 ```sh
 npm test
 ```
 
-The extension requests access to the active tab, clipboard writing, Chrome
-downloads, session storage, `https://otus.ru/*`, and Google Spreadsheets pages.
-The Google Spreadsheets content script only displays the paste instruction in a
-new sheet opened by the extension.
+Расширение запрашивает доступ к активной вкладке, записи в буфер обмена, загрузкам Chrome, хранилищу данных сессии, страницам `https://otus.ru/*` и Google Таблицам. Контент-скрипт для Google Таблиц только показывает инструкцию по вставке данных в новой таблице, открытой расширением.
+
+## Обратная связь
+
+Замечания и проблемы сюда:
+https://github.com/artemu78/otus_lk_webinar_downloader/issues
