@@ -98,6 +98,21 @@ export function findStudentSurname(payload, studentId) {
   return surname.trim();
 }
 
+export function findStudentMessages(payload, studentId) {
+  const chat = payload?.data?.chat;
+  if (!Array.isArray(chat)) {
+    throw new Error("В ответе домашней работы отсутствует массив data.chat.");
+  }
+
+  const messages = chat.filter(
+    (candidate) => String(candidate?.actor?.id) === String(studentId),
+  );
+  if (messages.length === 0) {
+    throw new Error("В чате домашней работы не найдены сообщения студента.");
+  }
+  return messages;
+}
+
 export function transliterateFolderPart(value) {
   const transliterated = [...String(value).normalize("NFC")]
     .map((character) => CYRILLIC_TO_LATIN[character] ?? character)

@@ -5,6 +5,7 @@ import {
   buildHomeworkFolderPath,
   findAssignedHomework,
   findStudentSurname,
+  findStudentMessages,
 } from "./lib.js";
 
 const LOCAL_COMMAND_URL = "http://127.0.0.1:8765/commands";
@@ -19,6 +20,20 @@ chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "DOWNLOAD_HOMEWORK_MATERIALS") {
+    downloadHomeworkMaterials(message.payload)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => {
+        console.error("Downloading homework materials failed", error);
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : "Непредвиденная ошибка.",
+        });
+      });
+
+    return true;
+  }
+
   if (message?.type === "OPEN_HOMEWORK_FOLDER") {
     openHomeworkFolder(message.payload)
       .then((path) => sendResponse({ ok: true, path }))
@@ -82,6 +97,24 @@ async function fetchOtusJson(url, description) {
 }
 
 async function openHomeworkFolder(ids) {
+  const { path } = await getHomeworkContext(ids);
+
+  await sendLocalCommand({ command: "open_folder", path });
+  return path;
+}
+
+async function downloadHomeworkMaterials(ids) {
+  const { path, messagePayload } = await getHomeworkContext(ids);
+  const messages = findStudentMessages(messagePayload, ids.studentId);
+  const result = await sendLocalCommand({
+    command: "clone_student_materials",
+    path,
+    messages,
+  });
+  return { path: result.path, repository: result.repository };
+}
+
+async function getHomeworkContext(ids) {
   const assignedPayload = await fetchOtusJson(
     "https://otus.ru/api/teacher-lk/homework/assigned/?",
     "Не удалось получить список домашних работ",
@@ -94,12 +127,16 @@ async function openHomeworkFolder(ids) {
   const surname = findStudentSurname(messagePayload, ids.studentId);
   const path = buildHomeworkFolderPath(assignedHomework.group, surname);
 
+  return { path, messagePayload };
+}
+
+async function sendLocalCommand(command) {
   let response;
   try {
     response = await fetch(LOCAL_COMMAND_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ command: "open_folder", path }),
+      body: JSON.stringify(command),
     });
   } catch {
     throw new Error(
@@ -111,7 +148,7 @@ async function openHomeworkFolder(ids) {
   if (!response.ok || result?.ok !== true) {
     throw new Error(result?.error ?? `Локальный сервер вернул ошибку ${response.status}.`);
   }
-  return path;
+  return result;
 }
 
 async function openGoogleSheet() {

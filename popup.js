@@ -10,8 +10,10 @@ const downloadButton = document.querySelector("#download");
 const summaryButton = document.querySelector("#summary");
 const attendanceButton = document.querySelector("#attendance");
 const homeworkFolderButton = document.querySelector("#homework-folder");
+const homeworkMaterialsButton = document.querySelector("#homework-materials");
 const lessonButtons = [downloadButton, summaryButton, attendanceButton];
-const actionButtons = [...lessonButtons, homeworkFolderButton];
+const homeworkButtons = [homeworkFolderButton, homeworkMaterialsButton];
+const actionButtons = [...lessonButtons, ...homeworkButtons];
 const statusElement = document.querySelector("#status");
 let lessonIds;
 let homeworkIds;
@@ -28,7 +30,7 @@ async function initialize() {
     if (activeUrl.startsWith("https://otus.ru/teacher-lk/homework")) {
       homeworkIds = parseHomeworkUrl(activeUrl);
       for (const button of lessonButtons) button.hidden = true;
-      homeworkFolderButton.hidden = false;
+      for (const button of homeworkButtons) button.hidden = false;
       lessonElement.textContent = `Студент ${homeworkIds.studentId} · Работа ${homeworkIds.homeworkId}`;
     } else {
       lessonIds = parseLessonUrl(activeUrl);
@@ -94,6 +96,33 @@ homeworkFolderButton.addEventListener("click", async () => {
   } finally {
     setActionsDisabled(false);
     homeworkFolderButton.textContent = "Открыть папку студента";
+  }
+});
+
+homeworkMaterialsButton.addEventListener("click", async () => {
+  if (!homeworkIds) return;
+
+  setActionsDisabled(true);
+  homeworkMaterialsButton.textContent = "Скачиваем…";
+  showStatus("Ищем ссылку на GitHub в сообщениях студента…");
+
+  try {
+    const result = await chrome.runtime.sendMessage({
+      type: "DOWNLOAD_HOMEWORK_MATERIALS",
+      payload: homeworkIds,
+    });
+    if (!result?.ok) {
+      throw new Error(result?.error ?? "Не удалось скачать материалы студента.");
+    }
+    showStatus(`Материалы скачаны в ${result.path}`, false, true);
+  } catch (error) {
+    showStatus(
+      error instanceof Error ? error.message : "Непредвиденная ошибка.",
+      true,
+    );
+  } finally {
+    setActionsDisabled(false);
+    homeworkMaterialsButton.textContent = "Скачать материалы студента";
   }
 });
 
