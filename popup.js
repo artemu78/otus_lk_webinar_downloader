@@ -62,7 +62,6 @@ summaryButton.addEventListener("click", () =>
   generateAndCopyTable(
     summaryButton,
     "Формируем сводную таблицу… Не закрывайте окно",
-    "Скопировать сводную таблицу — не закрывайте окно",
     generateSummaryTableTSV,
   ),
 );
@@ -71,26 +70,24 @@ attendanceButton.addEventListener("click", () =>
   generateAndCopyTable(
     attendanceButton,
     "Формируем таблицу посещаемости… Не закрывайте окно",
-    "Скопировать таблицу посещаемости — не закрывайте окно",
     generateAttendanceTableTSV,
   ),
 );
 
-async function generateAndCopyTable(button, loadingText, idleText, generator) {
+async function generateAndCopyTable(button, loadingText, generator) {
   if (!lessonIds) return;
 
   setActionsDisabled(true);
-  const originalStatus = statusElement.textContent;
+  const originalButtonText = button.textContent.trim();
   button.textContent = loadingText;
 
   try {
     const tsv = await generator(lessonIds.programId, fetch, showStatus);
     await navigator.clipboard.writeText(tsv);
-    showStatus(
-      "Таблица скопирована. Вставьте её в Google Таблицы.",
-      false,
-      true,
-    );
+    const result = await chrome.runtime.sendMessage({ type: "OPEN_GOOGLE_SHEET" });
+    if (!result?.ok) {
+      throw new Error(result?.error ?? "Не удалось открыть Google Таблицы.");
+    }
   } catch (error) {
     showStatus(
       error instanceof Error ? error.message : "Непредвиденная ошибка.",
@@ -98,7 +95,7 @@ async function generateAndCopyTable(button, loadingText, idleText, generator) {
     );
   } finally {
     setActionsDisabled(false);
-    button.textContent = originalStatus;
+    button.textContent = originalButtonText;
   }
 }
 
