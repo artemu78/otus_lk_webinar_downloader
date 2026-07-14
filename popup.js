@@ -2,15 +2,19 @@ import {
   generateAttendanceTableTSV,
   generateSummaryTableTSV,
   parseLessonUrl,
+  parseHomeworkUrl,
 } from "./lib.js";
 
 const lessonElement = document.querySelector("#lesson");
 const downloadButton = document.querySelector("#download");
 const summaryButton = document.querySelector("#summary");
 const attendanceButton = document.querySelector("#attendance");
-const actionButtons = [downloadButton, summaryButton, attendanceButton];
+const homeworkFolderButton = document.querySelector("#homework-folder");
+const lessonButtons = [downloadButton, summaryButton, attendanceButton];
+const actionButtons = [...lessonButtons, homeworkFolderButton];
 const statusElement = document.querySelector("#status");
 let lessonIds;
+let homeworkIds;
 
 initialize();
 
@@ -20,8 +24,16 @@ async function initialize() {
       active: true,
       currentWindow: true,
     });
-    lessonIds = parseLessonUrl(tab?.url ?? "");
-    lessonElement.textContent = `Программа ${lessonIds.programId} · Занятие ${lessonIds.lessonId}`;
+    const activeUrl = tab?.url ?? "";
+    if (activeUrl.startsWith("https://otus.ru/teacher-lk/homework")) {
+      homeworkIds = parseHomeworkUrl(activeUrl);
+      for (const button of lessonButtons) button.hidden = true;
+      homeworkFolderButton.hidden = false;
+      lessonElement.textContent = `Студент ${homeworkIds.studentId} · Работа ${homeworkIds.homeworkId}`;
+    } else {
+      lessonIds = parseLessonUrl(activeUrl);
+      lessonElement.textContent = `Программа ${lessonIds.programId} · Занятие ${lessonIds.lessonId}`;
+    }
     setActionsDisabled(false);
   } catch (error) {
     lessonElement.textContent = "Занятие OTUS не найдено";
@@ -55,6 +67,33 @@ downloadButton.addEventListener("click", async () => {
   } finally {
     setActionsDisabled(false);
     downloadButton.textContent = "Скачать вебинар";
+  }
+});
+
+homeworkFolderButton.addEventListener("click", async () => {
+  if (!homeworkIds) return;
+
+  setActionsDisabled(true);
+  homeworkFolderButton.textContent = "Ищем папку…";
+  showStatus("Получаем данные домашней работы…");
+
+  try {
+    const result = await chrome.runtime.sendMessage({
+      type: "OPEN_HOMEWORK_FOLDER",
+      payload: homeworkIds,
+    });
+    if (!result?.ok) {
+      throw new Error(result?.error ?? "Не удалось открыть папку студента.");
+    }
+    showStatus(`Открыта папка ${result.path}`, false, true);
+  } catch (error) {
+    showStatus(
+      error instanceof Error ? error.message : "Непредвиденная ошибка.",
+      true,
+    );
+  } finally {
+    setActionsDisabled(false);
+    homeworkFolderButton.textContent = "Открыть папку студента";
   }
 });
 

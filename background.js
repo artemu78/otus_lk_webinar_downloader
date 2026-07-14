@@ -2,7 +2,12 @@ import {
   buildLessonApiUrl,
   findWebinarDownloadUrl,
   sanitizeDownloadFilename,
+  buildHomeworkFolderPath,
+  findAssignedHomework,
+  findStudentSurname,
 } from "./lib.js";
+
+const LOCAL_COMMAND_URL = "http://127.0.0.1:8765/commands";
 
 chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
   if (downloadItem.byExtensionId !== chrome.runtime.id) return;
@@ -14,6 +19,20 @@ chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "OPEN_HOMEWORK_FOLDER") {
+    openHomeworkFolder(message.payload)
+      .then((path) => sendResponse({ ok: true, path }))
+      .catch((error) => {
+        console.error("Opening homework folder failed", error);
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : "Непредвиденная ошибка.",
+        });
+      });
+
+    return true;
+  }
+
   if (message?.type === "OPEN_GOOGLE_SHEET") {
     openGoogleSheet()
       .then((tabId) => sendResponse({ ok: true, tabId }))
@@ -50,6 +69,50 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   return true;
 });
+
+async function fetchOtusJson(url, description) {
+  const response = await fetch(url, {
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(`${description} (${response.status}).`);
+  }
+  return response.json();
+}
+
+async function openHomeworkFolder(ids) {
+  const assignedPayload = await fetchOtusJson(
+    "https://otus.ru/api/teacher-lk/homework/assigned/?",
+    "Не удалось получить список домашних работ",
+  );
+  const assignedHomework = findAssignedHomework(assignedPayload, ids);
+  const messagePayload = await fetchOtusJson(
+    `https://otus.ru/api/teacher-lk/homework/msg/${encodeURIComponent(ids.studentId)}/${encodeURIComponent(ids.homeworkId)}/`,
+    "Не удалось получить чат домашней работы",
+  );
+  const surname = findStudentSurname(messagePayload, ids.studentId);
+  const path = buildHomeworkFolderPath(assignedHomework.group, surname);
+
+  let response;
+  try {
+    response = await fetch(LOCAL_COMMAND_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command: "open_folder", path }),
+    });
+  } catch {
+    throw new Error(
+      "Локальный сервер недоступен. Запустите его командой npm run local-server.",
+    );
+  }
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result?.ok !== true) {
+    throw new Error(result?.error ?? `Локальный сервер вернул ошибку ${response.status}.`);
+  }
+  return path;
+}
 
 async function openGoogleSheet() {
   const tab = await chrome.tabs.create({ url: "https://sheets.new" });

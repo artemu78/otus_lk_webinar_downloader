@@ -1,4 +1,24 @@
 const LESSON_PATH_RE = /^\/teacher-lk\/programs\/(\d+)\/(\d+)(?:\/|$)/;
+const HOMEWORK_PATH_RE = /^\/teacher-lk\/homework\/(\d+)\/(\d+)(?:\/|$)/;
+const GROUP_RE = /^(.*)-(\d{4}-\d{2})$/;
+const COURSE_DIRECTORY_NAMES = new Map([
+  ["ai-dev-tools", "AI_Dev_Tools"],
+  ["ai-agents", "AI_Agents"],
+  ["dev-ai-agents", "DEV-AI-Agents"],
+]);
+
+const CYRILLIC_TO_LATIN = {
+  А: "A", Б: "B", В: "V", Г: "G", Д: "D", Е: "E", Ё: "E",
+  Ж: "Zh", З: "Z", И: "I", Й: "I", К: "K", Л: "L", М: "M",
+  Н: "N", О: "O", П: "P", Р: "R", С: "S", Т: "T", У: "U",
+  Ф: "F", Х: "Kh", Ц: "Ts", Ч: "Ch", Ш: "Sh", Щ: "Shch",
+  Ъ: "", Ы: "Y", Ь: "", Э: "E", Ю: "Yu", Я: "Ya",
+  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e",
+  ж: "zh", з: "z", и: "i", й: "i", к: "k", л: "l", м: "m",
+  н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u",
+  ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch",
+  ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya",
+};
 
 export function parseLessonUrl(rawUrl) {
   let url;
@@ -18,6 +38,107 @@ export function parseLessonUrl(rawUrl) {
   }
 
   return { programId: match[1], lessonId: match[2] };
+}
+
+export function parseHomeworkUrl(rawUrl) {
+  let url;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error("Адрес активной вкладки некорректен.");
+  }
+
+  if (url.protocol !== "https:" || url.hostname !== "otus.ru") {
+    throw new Error("Сначала откройте домашнюю работу в кабинете преподавателя OTUS.");
+  }
+
+  const match = url.pathname.match(HOMEWORK_PATH_RE);
+  if (!match) {
+    throw new Error("Не удалось определить студента и домашнюю работу по этому адресу.");
+  }
+
+  return { studentId: match[1], homeworkId: match[2] };
+}
+
+export function findAssignedHomework(payload, { studentId, homeworkId }) {
+  const items = payload?.data?.items;
+  if (!Array.isArray(items)) {
+    throw new Error("В списке назначенных работ отсутствует массив data.items.");
+  }
+
+  const item = items.find(
+    (candidate) =>
+      String(candidate?.user_id) === String(studentId) &&
+      String(candidate?.homework_id) === String(homeworkId),
+  );
+  if (!item) {
+    throw new Error("Эта работа не найдена в списке назначенных домашних работ.");
+  }
+  if (typeof item.group !== "string" || !item.group.trim()) {
+    throw new Error("У найденной домашней работы не указана группа.");
+  }
+
+  return item;
+}
+
+export function findStudentSurname(payload, studentId) {
+  const chat = payload?.data?.chat;
+  if (!Array.isArray(chat)) {
+    throw new Error("В ответе домашней работы отсутствует массив data.chat.");
+  }
+
+  const message = chat.find(
+    (candidate) => String(candidate?.actor?.id) === String(studentId),
+  );
+  const surname = message?.actor?.lname;
+  if (typeof surname !== "string" || !surname.trim()) {
+    throw new Error("Не удалось найти фамилию студента в чате домашней работы.");
+  }
+
+  return surname.trim();
+}
+
+export function transliterateFolderPart(value) {
+  const transliterated = [...String(value).normalize("NFC")]
+    .map((character) => CYRILLIC_TO_LATIN[character] ?? character)
+    .join("");
+  const safe = transliterated
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_");
+
+  if (!safe || safe === "." || safe === "..") {
+    throw new Error("Не удалось преобразовать фамилию в безопасное имя папки.");
+  }
+  return safe;
+}
+
+export function splitGroupCode(group) {
+  const match = String(group).trim().match(GROUP_RE);
+  if (!match || !match[1]) {
+    throw new Error("Группа должна оканчиваться кодом в формате YYYY-MM.");
+  }
+  return { courseCode: match[1], groupCode: match[2] };
+}
+
+export function courseCodeToDirectory(courseCode) {
+  const knownName = COURSE_DIRECTORY_NAMES.get(courseCode.toLowerCase());
+  if (knownName) return knownName;
+
+  return courseCode
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("_");
+}
+
+export function buildHomeworkFolderPath(group, surname) {
+  const { courseCode, groupCode } = splitGroupCode(group);
+  const courseDirectory = courseCodeToDirectory(courseCode);
+  const studentDirectory = transliterateFolderPart(surname);
+  return `/Users/artemreva/projects/otus/${courseDirectory}/${groupCode}/${studentDirectory}`;
 }
 
 export function buildLessonApiUrl({ programId, lessonId }) {
