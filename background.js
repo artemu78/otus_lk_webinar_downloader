@@ -1,0 +1,36 @@
+import { buildLessonApiUrl, findWebinarDownloadUrl } from "./lib.js";
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type !== "DOWNLOAD_WEBINAR") return false;
+
+  downloadWebinar(message.payload)
+    .then((downloadId) => sendResponse({ ok: true, downloadId }))
+    .catch((error) => {
+      console.error("OTUS webinar download failed", error);
+      sendResponse({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unexpected error.",
+      });
+    });
+
+  return true;
+});
+
+async function downloadWebinar(ids) {
+  const apiUrl = buildLessonApiUrl(ids);
+  const response = await fetch(apiUrl, {
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      throw new Error("OTUS rejected the request. Sign in and try again.");
+    }
+    throw new Error(`Lesson API request failed (${response.status}).`);
+  }
+
+  const payload = await response.json();
+  const downloadUrl = findWebinarDownloadUrl(payload);
+  return chrome.downloads.download({ url: downloadUrl });
+}

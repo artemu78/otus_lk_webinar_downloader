@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "OTUS Webinar Downloader",
+  "version": "1.0.0",
+  "description": "Downloads the public webinar recording for the current OTUS lesson.",
+  "permissions": ["activeTab", "downloads"],
+  "host_permissions": ["https://otus.ru/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Download OTUS webinar",
+    "default_popup": "popup.html"
+  }
+}
