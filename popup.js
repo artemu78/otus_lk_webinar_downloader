@@ -1,7 +1,14 @@
-import { parseLessonUrl } from "./lib.js";
+import {
+  generateAttendanceTableTSV,
+  generateSummaryTableTSV,
+  parseLessonUrl,
+} from "./lib.js";
 
 const lessonElement = document.querySelector("#lesson");
 const downloadButton = document.querySelector("#download");
+const summaryButton = document.querySelector("#summary");
+const attendanceButton = document.querySelector("#attendance");
+const actionButtons = [downloadButton, summaryButton, attendanceButton];
 const statusElement = document.querySelector("#status");
 let lessonIds;
 
@@ -9,37 +16,95 @@ initialize();
 
 async function initialize() {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
     lessonIds = parseLessonUrl(tab?.url ?? "");
-    lessonElement.textContent = `Program ${lessonIds.programId} · Lesson ${lessonIds.lessonId}`;
-    downloadButton.disabled = false;
+    lessonElement.textContent = `Программа ${lessonIds.programId} · Занятие ${lessonIds.lessonId}`;
+    setActionsDisabled(false);
   } catch (error) {
-    lessonElement.textContent = "No OTUS lesson detected";
-    showStatus(error instanceof Error ? error.message : "Unexpected error.", true);
+    lessonElement.textContent = "Занятие OTUS не найдено";
+    showStatus(
+      error instanceof Error ? error.message : "Непредвиденная ошибка.",
+      true,
+    );
   }
 }
 
 downloadButton.addEventListener("click", async () => {
   if (!lessonIds) return;
 
-  downloadButton.disabled = true;
-  downloadButton.textContent = "Starting…";
-  showStatus("Fetching lesson data…");
+  setActionsDisabled(true);
+  downloadButton.textContent = "Запускаем…";
+  showStatus("Получаем данные занятия…");
 
   try {
     const result = await chrome.runtime.sendMessage({
       type: "DOWNLOAD_WEBINAR",
       payload: lessonIds,
     });
-    if (!result?.ok) throw new Error(result?.error ?? "Download failed.");
-    showStatus("Download started.", false, true);
+    if (!result?.ok)
+      throw new Error(result?.error ?? "Не удалось начать загрузку.");
+    showStatus("Загрузка началась.", false, true);
   } catch (error) {
-    showStatus(error instanceof Error ? error.message : "Unexpected error.", true);
+    showStatus(
+      error instanceof Error ? error.message : "Непредвиденная ошибка.",
+      true,
+    );
   } finally {
-    downloadButton.disabled = false;
-    downloadButton.textContent = "Download webinar";
+    setActionsDisabled(false);
+    downloadButton.textContent = "Скачать вебинар";
   }
 });
+
+summaryButton.addEventListener("click", () =>
+  generateAndCopyTable(
+    summaryButton,
+    "Формируем сводную таблицу… Не закрывайте окно",
+    "Скопировать сводную таблицу — не закрывайте окно",
+    generateSummaryTableTSV,
+  ),
+);
+
+attendanceButton.addEventListener("click", () =>
+  generateAndCopyTable(
+    attendanceButton,
+    "Формируем таблицу посещаемости… Не закрывайте окно",
+    "Скопировать таблицу посещаемости — не закрывайте окно",
+    generateAttendanceTableTSV,
+  ),
+);
+
+async function generateAndCopyTable(button, loadingText, idleText, generator) {
+  if (!lessonIds) return;
+
+  setActionsDisabled(true);
+  const originalStatus = statusElement.textContent;
+  button.textContent = loadingText;
+
+  try {
+    const tsv = await generator(lessonIds.programId, fetch, showStatus);
+    await navigator.clipboard.writeText(tsv);
+    showStatus(
+      "Таблица скопирована. Вставьте её в Google Таблицы.",
+      false,
+      true,
+    );
+  } catch (error) {
+    showStatus(
+      error instanceof Error ? error.message : "Непредвиденная ошибка.",
+      true,
+    );
+  } finally {
+    setActionsDisabled(false);
+    button.textContent = originalStatus;
+  }
+}
+
+function setActionsDisabled(disabled) {
+  for (const button of actionButtons) button.disabled = disabled;
+}
 
 function showStatus(message, isError = false, isSuccess = false) {
   statusElement.textContent = message;

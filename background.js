@@ -22,7 +22,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       console.error("OTUS webinar download failed", error);
       sendResponse({
         ok: false,
-        error: error instanceof Error ? error.message : "Unexpected error.",
+        error: error instanceof Error ? error.message : "Непредвиденная ошибка.",
       });
     });
 
@@ -38,9 +38,9 @@ async function downloadWebinar(ids) {
 
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
-      throw new Error("OTUS rejected the request. Sign in and try again.");
+      throw new Error("OTUS отклонил запрос. Войдите в аккаунт и попробуйте снова.");
     }
-    throw new Error(`Lesson API request failed (${response.status}).`);
+    throw new Error(`Не удалось получить данные занятия (${response.status}).`);
   }
 
   const payload = await response.json();

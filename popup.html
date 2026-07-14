@@ -1,16 +1,24 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>OTUS Webinar Downloader</title>
-    <link rel="stylesheet" href="popup.css">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Загрузчик вебинаров OTUS</title>
+    <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <main>
-      <h1>OTUS Webinar</h1>
-      <p id="lesson" class="lesson">Reading active lesson…</p>
-      <button id="download" type="button" disabled>Download webinar</button>
+      <h1>Вебинар OTUS</h1>
+      <p id="lesson" class="lesson">Читаем данные текущего занятия…</p>
+      <div class="actions">
+        <button id="download" type="button" disabled>Скачать вебинар</button>
+        <button id="summary" class="secondary" type="button" disabled>
+          Посещаемость по занятиям
+        </button>
+        <button id="attendance" class="secondary" type="button" disabled>
+          Посещаемость пофамильно
+        </button>
+      </div>
       <p id="status" class="status" role="status" aria-live="polite"></p>
     </main>
     <script type="module" src="popup.js"></script>
