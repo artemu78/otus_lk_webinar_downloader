@@ -1,4 +1,17 @@
-import { buildLessonApiUrl, findWebinarDownloadUrl } from "./lib.js";
+import {
+  buildLessonApiUrl,
+  findWebinarDownloadUrl,
+  sanitizeDownloadFilename,
+} from "./lib.js";
+
+chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
+  if (downloadItem.byExtensionId !== chrome.runtime.id) return;
+
+  suggest({
+    filename: sanitizeDownloadFilename(downloadItem.filename),
+    conflictAction: "uniquify",
+  });
+});
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "DOWNLOAD_WEBINAR") return false;
@@ -32,5 +45,8 @@ async function downloadWebinar(ids) {
 
   const payload = await response.json();
   const downloadUrl = findWebinarDownloadUrl(payload);
-  return chrome.downloads.download({ url: downloadUrl });
+  return chrome.downloads.download({
+    url: downloadUrl,
+    saveAs: true,
+  });
 }

@@ -59,3 +59,21 @@ export function findWebinarDownloadUrl(payload) {
 
   return parsed.toString();
 }
+
+export function sanitizeDownloadFilename(encodedName) {
+  let decodedName;
+  try {
+    decodedName = decodeURIComponent(encodedName);
+  } catch {
+    decodedName = encodedName;
+  }
+
+  const safeName = decodedName
+    .normalize("NFC")
+    .replace(/[<>:"/\\|?*\u0000-\u001F\u007F]/g, "_")
+    .replace(/\s+/g, " ")
+    .replace(/[. ]+$/g, "")
+    .trim();
+
+  return safeName || "webinar";
+}
