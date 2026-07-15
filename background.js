@@ -5,8 +5,13 @@ import {
   findStudentSurname,
   findStudentMessages,
 } from "./lib.js";
-
-const LOCAL_COMMAND_URL = "http://127.0.0.1:8765/commands";
+import {
+  EXTENSION_MESSAGES,
+  GOOGLE_SHEET_URL,
+  LOCAL_COMMANDS,
+  LOCAL_SERVER,
+  SESSION_STORAGE_KEYS,
+} from "./constants.js";
 
 chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
   if (downloadItem.byExtensionId !== chrome.runtime.id) return;
@@ -18,7 +23,7 @@ chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === "DOWNLOAD_HOMEWORK_MATERIALS") {
+  if (message?.type === EXTENSION_MESSAGES.DOWNLOAD_HOMEWORK_MATERIALS) {
     downloadHomeworkMaterials(message.payload)
       .then((result) => sendResponse({ ok: true, ...result }))
       .catch((error) => {
@@ -32,7 +37,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === "OPEN_HOMEWORK_FOLDER") {
+  if (message?.type === EXTENSION_MESSAGES.OPEN_HOMEWORK_FOLDER) {
     openHomeworkFolder(message.payload)
       .then((path) => sendResponse({ ok: true, path }))
       .catch((error) => {
@@ -46,21 +51,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === "OPEN_HOMEWORK_WARP") {
-    runHomeworkPathCommand(message.payload, "open_warp")
+  if (message?.type === EXTENSION_MESSAGES.OPEN_HOMEWORK_WARP) {
+    runHomeworkPathCommand(message.payload, LOCAL_COMMANDS.OPEN_WARP)
       .then((result) => sendResponse({ ok: true, ...result }))
       .catch((error) => sendHomeworkError("Opening Warp failed", error, sendResponse));
     return true;
   }
 
-  if (message?.type === "READ_HOMEWORK_RESULTS") {
-    runHomeworkPathCommand(message.payload, "read_latest_analysis")
+  if (message?.type === EXTENSION_MESSAGES.READ_HOMEWORK_RESULTS) {
+    runHomeworkPathCommand(message.payload, LOCAL_COMMANDS.READ_LATEST_ANALYSIS)
       .then((result) => sendResponse({ ok: true, ...result }))
       .catch((error) => sendHomeworkError("Reading homework results failed", error, sendResponse));
     return true;
   }
 
-  if (message?.type === "OPEN_GOOGLE_SHEET") {
+  if (message?.type === EXTENSION_MESSAGES.OPEN_GOOGLE_SHEET) {
     openGoogleSheet()
       .then((tabId) => sendResponse({ ok: true, tabId }))
       .catch((error) => {
@@ -74,7 +79,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === "GOOGLE_SHEET_READY") {
+  if (message?.type === EXTENSION_MESSAGES.GOOGLE_SHEET_READY) {
     shouldShowSheetInstruction(_sender.tab?.id)
       .then((showInstruction) => sendResponse({ showInstruction }))
       .catch(() => sendResponse({ showInstruction: false }));
@@ -82,7 +87,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type !== "DOWNLOAD_WEBINAR") return false;
+  if (message?.type !== EXTENSION_MESSAGES.DOWNLOAD_WEBINAR) return false;
 
   downloadWebinar(message.payload)
     .then((downloadId) => sendResponse({ ok: true, downloadId }))
@@ -110,7 +115,10 @@ async function fetchOtusJson(url, description) {
 
 async function openHomeworkFolder(ids) {
   const folder = await getHomeworkFolder(ids);
-  const result = await sendLocalCommand({ command: "open_folder", ...folder });
+  const result = await sendLocalCommand({
+    command: LOCAL_COMMANDS.OPEN_FOLDER,
+    ...folder,
+  });
   return result.path;
 }
 
@@ -119,7 +127,7 @@ async function downloadHomeworkMaterials(ids) {
   const folder = await getHomeworkFolder(ids, messagePayload);
   const messages = findStudentMessages(messagePayload, ids.studentId);
   const result = await sendLocalCommand({
-    command: "clone_student_materials",
+    command: LOCAL_COMMANDS.CLONE_STUDENT_MATERIALS,
     ...folder,
     messages,
   });
@@ -186,7 +194,7 @@ async function getHomeworkContext(ids, existingMessagePayload) {
 async function sendLocalCommand(command) {
   let response;
   try {
-    response = await fetch(LOCAL_COMMAND_URL, {
+    response = await fetch(LOCAL_SERVER.COMMANDS_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(command),
@@ -205,24 +213,25 @@ async function sendLocalCommand(command) {
 }
 
 async function openGoogleSheet() {
-  const tab = await chrome.tabs.create({ url: "https://sheets.new" });
+  const tab = await chrome.tabs.create({ url: GOOGLE_SHEET_URL });
   if (typeof tab.id !== "number") {
     throw new Error("Не удалось открыть новую Google Таблицу.");
   }
 
-  await chrome.storage.session.set({ pendingGoogleSheetTabId: tab.id });
+  await chrome.storage.session.set({
+    [SESSION_STORAGE_KEYS.PENDING_GOOGLE_SHEET_TAB_ID]: tab.id,
+  });
   return tab.id;
 }
 
 async function shouldShowSheetInstruction(tabId) {
   if (typeof tabId !== "number") return false;
 
-  const { pendingGoogleSheetTabId } = await chrome.storage.session.get(
-    "pendingGoogleSheetTabId",
-  );
+  const key = SESSION_STORAGE_KEYS.PENDING_GOOGLE_SHEET_TAB_ID;
+  const pendingGoogleSheetTabId = (await chrome.storage.session.get(key))[key];
   if (pendingGoogleSheetTabId !== tabId) return false;
 
-  await chrome.storage.session.remove("pendingGoogleSheetTabId");
+  await chrome.storage.session.remove(key);
   return true;
 }
 

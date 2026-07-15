@@ -4,6 +4,7 @@ import {
   parseLessonUrl,
   parseHomeworkUrl,
 } from "./lib.js";
+import { EXTENSION_MESSAGES } from "./constants.js";
 
 const lessonElement = document.querySelector("#lesson");
 const downloadButton = document.querySelector("#download");
@@ -67,7 +68,7 @@ downloadButton.addEventListener("click", async () => {
 
   try {
     const result = await chrome.runtime.sendMessage({
-      type: "DOWNLOAD_WEBINAR",
+      type: EXTENSION_MESSAGES.DOWNLOAD_WEBINAR,
       payload: lessonIds,
     });
     if (!result?.ok)
@@ -112,7 +113,7 @@ homeworkFolderButton.addEventListener("click", async () => {
 
   try {
     const result = await chrome.runtime.sendMessage({
-      type: "OPEN_HOMEWORK_FOLDER",
+      type: EXTENSION_MESSAGES.OPEN_HOMEWORK_FOLDER,
       payload: getHomeworkPayload(),
     });
     if (!result?.ok) {
@@ -140,7 +141,7 @@ homeworkMaterialsButton.addEventListener("click", async () => {
 
   try {
     const result = await chrome.runtime.sendMessage({
-      type: "DOWNLOAD_HOMEWORK_MATERIALS",
+      type: EXTENSION_MESSAGES.DOWNLOAD_HOMEWORK_MATERIALS,
       payload: getHomeworkPayload(),
     });
     if (!result?.ok) {
@@ -168,7 +169,7 @@ homeworkResultsButton.addEventListener("click", async () => {
 
   try {
     const result = await chrome.runtime.sendMessage({
-      type: "READ_HOMEWORK_RESULTS",
+      type: EXTENSION_MESSAGES.READ_HOMEWORK_RESULTS,
       payload: getHomeworkPayload(),
     });
     if (!result?.ok) {
@@ -208,7 +209,7 @@ homeworkWarpButton.addEventListener("click", async () => {
 
   try {
     const result = await chrome.runtime.sendMessage({
-      type: "OPEN_HOMEWORK_WARP",
+      type: EXTENSION_MESSAGES.OPEN_HOMEWORK_WARP,
       payload: getHomeworkPayload(),
     });
     if (!result?.ok) {
@@ -285,7 +286,9 @@ async function generateAndCopyTable(button, loadingText, generator) {
   try {
     const tsv = await generator(lessonIds.programId, fetch, showStatus);
     await navigator.clipboard.writeText(tsv);
-    const result = await chrome.runtime.sendMessage({ type: "OPEN_GOOGLE_SHEET" });
+    const result = await chrome.runtime.sendMessage({
+      type: EXTENSION_MESSAGES.OPEN_GOOGLE_SHEET,
+    });
     if (!result?.ok) {
       throw new Error(result?.error ?? "Не удалось открыть Google Таблицы.");
     }

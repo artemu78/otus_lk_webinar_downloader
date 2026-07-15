@@ -1,9 +1,12 @@
-chrome.runtime.sendMessage({ type: "GOOGLE_SHEET_READY" }).then((response) => {
-  if (!response?.showInstruction) return;
+import(chrome.runtime.getURL("constants.js")).then(({ EXTENSION_MESSAGES }) => {
+  chrome.runtime
+    .sendMessage({ type: EXTENSION_MESSAGES.GOOGLE_SHEET_READY })
+    .then((response) => {
+      if (!response?.showInstruction) return;
 
-  const notice = document.createElement("aside");
-  notice.setAttribute("role", "status");
-  notice.style.cssText = [
+      const notice = document.createElement("aside");
+      notice.setAttribute("role", "status");
+      notice.style.cssText = [
     "position:fixed",
     "top:16px",
     "left:50%",
@@ -16,17 +19,17 @@ chrome.runtime.sendMessage({ type: "GOOGLE_SHEET_READY" }).then((response) => {
     "color:#202124",
     "background:#fff",
     "font:14px/1.45 Arial,sans-serif",
-  ].join(";");
+      ].join(";");
 
-  const message = document.createElement("span");
-  message.textContent =
-    "Данные уже скопированы. Нажмите ⌘V или Ctrl+V. Если A1 не выделена, нажмите на неё и вставьте данные.";
+      const message = document.createElement("span");
+      message.textContent =
+        "Данные уже скопированы. Нажмите ⌘V или Ctrl+V. Если A1 не выделена, нажмите на неё и вставьте данные.";
 
-  const closeButton = document.createElement("button");
-  closeButton.type = "button";
-  closeButton.setAttribute("aria-label", "Закрыть подсказку");
-  closeButton.textContent = "×";
-  closeButton.style.cssText = [
+      const closeButton = document.createElement("button");
+      closeButton.type = "button";
+      closeButton.setAttribute("aria-label", "Закрыть подсказку");
+      closeButton.textContent = "×";
+      closeButton.style.cssText = [
     "position:absolute",
     "top:7px",
     "right:10px",
@@ -35,9 +38,10 @@ chrome.runtime.sendMessage({ type: "GOOGLE_SHEET_READY" }).then((response) => {
     "background:transparent",
     "font:24px/1 Arial,sans-serif",
     "cursor:pointer",
-  ].join(";");
-  closeButton.addEventListener("click", () => notice.remove());
+      ].join(";");
+      closeButton.addEventListener("click", () => notice.remove());
 
-  notice.append(message, closeButton);
-  document.body.append(notice);
+      notice.append(message, closeButton);
+      document.body.append(notice);
+    });
 });

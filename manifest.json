@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Otus Teacher Helper",
-  "version": "1.0.28",
+  "version": "1.0.29",
   "description": "Скачивает доступную запись вебинара для текущего занятия OTUS.",
   "icons": {
     "16": "icons/icon16.png",
@@ -28,6 +28,12 @@
       "matches": ["https://docs.google.com/spreadsheets/*"],
       "js": ["sheets-instruction.js"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["constants.js"],
+      "matches": ["https://docs.google.com/spreadsheets/*"]
     }
   ]
 }

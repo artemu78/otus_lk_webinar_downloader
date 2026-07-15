@@ -3,9 +3,10 @@ import { createServer } from "node:http";
 import { lstat, mkdir, readFile, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { LOCAL_COMMANDS, LOCAL_SERVER } from "../constants.js";
 
-export const DEFAULT_HOST = "127.0.0.1";
-export const DEFAULT_PORT = 8765;
+export const DEFAULT_HOST = LOCAL_SERVER.HOST;
+export const DEFAULT_PORT = LOCAL_SERVER.PORT;
 const MAX_BODY_BYTES = 256 * 1024;
 const DEFAULT_ENV_PATH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -537,31 +538,31 @@ export async function executeCommand(message, options = {}) {
     return ensureFolder(requestedPath, allowedRoot);
   };
 
-  if (message?.command === "open_folder") {
+  if (message?.command === LOCAL_COMMANDS.OPEN_FOLDER) {
     const folderPath = await resolveFolder();
     await openFolder(folderPath);
-    return { ok: true, command: "open_folder", path: folderPath };
+    return { ok: true, command: LOCAL_COMMANDS.OPEN_FOLDER, path: folderPath };
   }
 
-  if (message?.command === "open_warp") {
+  if (message?.command === LOCAL_COMMANDS.OPEN_WARP) {
     const folderPath = await resolveFolder();
     const openWarp = options.openWarp ?? openInWarp;
     await openWarp(folderPath);
-    return { ok: true, command: "open_warp", path: folderPath };
+    return { ok: true, command: LOCAL_COMMANDS.OPEN_WARP, path: folderPath };
   }
 
-  if (message?.command === "read_latest_analysis") {
+  if (message?.command === LOCAL_COMMANDS.READ_LATEST_ANALYSIS) {
     const folderPath = await resolveFolder();
     const readAnalysis = options.readAnalysis ?? readLatestAnalysis;
     return {
       ok: true,
-      command: "read_latest_analysis",
+      command: LOCAL_COMMANDS.READ_LATEST_ANALYSIS,
       path: folderPath,
       ...(await readAnalysis(folderPath)),
     };
   }
 
-  if (message?.command === "clone_student_materials") {
+  if (message?.command === LOCAL_COMMANDS.CLONE_STUDENT_MATERIALS) {
     const flowId =
       options.flowId ??
       `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -597,7 +598,7 @@ export async function executeCommand(message, options = {}) {
       logResolveFlow("flow.complete", { repository, folderPath }, flowOptions);
       return {
         ok: true,
-        command: "clone_student_materials",
+        command: LOCAL_COMMANDS.CLONE_STUDENT_MATERIALS,
         path: folderPath,
         repository,
       };
@@ -680,11 +681,14 @@ export function createCommandServer(options = {}) {
       sendJson(request, response, 204, {});
       return;
     }
-    if (request.method === "GET" && request.url === "/health") {
+    if (request.method === "GET" && request.url === LOCAL_SERVER.HEALTH_PATH) {
       sendJson(request, response, 200, { ok: true });
       return;
     }
-    if (request.method !== "POST" || request.url !== "/commands") {
+    if (
+      request.method !== "POST" ||
+      request.url !== LOCAL_SERVER.COMMANDS_PATH
+    ) {
       sendJson(request, response, 404, { ok: false, error: "not found" });
       return;
     }
