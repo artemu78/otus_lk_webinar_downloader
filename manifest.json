@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Загрузчик вебинаров OTUS",
-  "version": "1.0.17",
+  "version": "1.0.22",
   "description": "Скачивает доступную запись вебинара для текущего занятия OTUS.",
   "icons": {
     "16": "icons/icon16.png",

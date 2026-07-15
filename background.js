@@ -2,8 +2,6 @@ import {
   buildLessonApiUrl,
   findWebinarDownloadUrl,
   sanitizeDownloadFilename,
-  buildHomeworkFolderPath,
-  findAssignedHomework,
   findStudentSurname,
   findStudentMessages,
 } from "./lib.js";
@@ -91,43 +89,59 @@ async function fetchOtusJson(url, description) {
     headers: { Accept: "application/json" },
   });
   if (!response.ok) {
-    throw new Error(`${description} (${response.status}).`);
+    throw new Error(`[fetchOtusJson]: ${description} (${response.status}).`);
   }
   return response.json();
 }
 
 async function openHomeworkFolder(ids) {
-  const { path } = await getHomeworkContext(ids);
-
-  await sendLocalCommand({ command: "open_folder", path });
-  return path;
+  const context = await getHomeworkContext(ids);
+  const result = await sendLocalCommand({ command: "open_folder", ...context.folder });
+  return result.path;
 }
 
 async function downloadHomeworkMaterials(ids) {
-  const { path, messagePayload } = await getHomeworkContext(ids);
+  const { folder, messagePayload } = await getHomeworkContext(ids);
   const messages = findStudentMessages(messagePayload, ids.studentId);
   const result = await sendLocalCommand({
     command: "clone_student_materials",
-    path,
+    ...folder,
     messages,
   });
   return { path: result.path, repository: result.repository };
 }
 
 async function getHomeworkContext(ids) {
-  const assignedPayload = await fetchOtusJson(
-    "https://otus.ru/api/teacher-lk/homework/assigned/?",
-    "Не удалось получить список домашних работ",
-  );
-  const assignedHomework = findAssignedHomework(assignedPayload, ids);
   const messagePayload = await fetchOtusJson(
     `https://otus.ru/api/teacher-lk/homework/msg/${encodeURIComponent(ids.studentId)}/${encodeURIComponent(ids.homeworkId)}/`,
     "Не удалось получить чат домашней работы",
   );
   const surname = findStudentSurname(messagePayload, ids.studentId);
-  const path = buildHomeworkFolderPath(assignedHomework.group, surname);
 
-  return { path, messagePayload };
+  const homeworkUrl = `https://otus.ru/api/teacher-lk/homework/put/${encodeURIComponent(ids.studentId)}/${encodeURIComponent(ids.homeworkId)}/?`;
+  const homeworkData = await fetchOtusJson(
+    homeworkUrl,
+    "Не удалось получить данные домашней работы url=" + homeworkUrl,
+  );
+  const groupId = homeworkData?.data?.homework?.group_id;
+
+  const groupUrl = `https://otus.ru/api/teacher-lk/homework/journal/${groupId}/?groupId=${groupId}`;
+  const groupData = await fetchOtusJson(
+    groupUrl,
+    "Не удалось получить данные группы",
+  );
+  // groupData.data.group.title contains group code like "AI_Dev_Tools_2025-10"
+  const groupCode = groupData?.data?.group?.title;
+  const homeworkNumber = groupData.data.homeworks.findIndex((item) => {return item.id==ids.homeworkId});
+
+  if (homeworkNumber === -1) {
+    throw new Error(`Домашняя работа id=${ids.homeworkId} не найдена в url=${groupUrl}`);
+  }
+
+  return {
+    folder: { groupCode, surname, homeworkNumber: homeworkNumber + 1 },
+    messagePayload,
+  };
 }
 
 async function sendLocalCommand(command) {

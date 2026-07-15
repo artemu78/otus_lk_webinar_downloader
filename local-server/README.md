@@ -1,8 +1,8 @@
 # Local command server
 
-The extension sends local macOS commands to this dependency-free Node.js server.
-It listens only on `127.0.0.1` and accepts folders located below
-`/Users/artemreva/projects/otus`.
+The extension sends local OS commands to this dependency-free Node.js server.
+It listens only on `127.0.0.1` and accepts folders located below the
+`DEFAULT_ALLOWED_ROOT` configured in `.env`.
 
 Start it from the repository root:
 
@@ -19,18 +19,20 @@ is absent or when an OpenRouter setting is empty. `.env` is ignored by Git;
 Supported endpoints:
 
 - `GET /health` — server health check.
-- `POST /commands` with `{"command":"open_folder","path":"/absolute/path"}` —
-  create the directory when necessary, validate it, and open it in Finder.
-- `POST /commands` with `clone_student_materials`, a validated path and the
-  student's messages — use OpenRouter to find a GitHub link, resolve a PR's
+- `POST /commands` with `open_folder`, `groupCode`, `surname`, and
+  `homeworkNumber` — build the platform-specific path below
+  `DEFAULT_ALLOWED_ROOT`, create the directory when necessary, validate it, and
+  open it in Finder.
+- `POST /commands` with `clone_student_materials`, the same folder parameters,
+  and the student's messages — use OpenRouter to find a GitHub link, resolve a PR's
   source repository with `gh`, then run `git clone` with the SSH host alias from
   `GITHUB_SSH_HOST`, including when the student's message contains a UI URL.
 
-Optional environment variables:
+Environment variables:
 
 - `OTUS_COMMAND_HOST` (default `127.0.0.1`)
 - `OTUS_COMMAND_PORT` (default `8765`)
-- `OTUS_PROJECTS_ROOT` (default `/Users/artemreva/projects/otus`)
+- `DEFAULT_ALLOWED_ROOT` is required and defines the local OTUS projects root.
 - `OPENROUTER_API_KEY`, `OPENROUTER_URL`, `OPENROUTER_MODEL`, and
   `GITHUB_SSH_HOST` are required in `.env`. The example uses
   `GITHUB_SSH_HOST=artemreva-hub`, which must match a `Host` entry in

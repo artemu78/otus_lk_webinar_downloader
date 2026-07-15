@@ -4,14 +4,38 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  buildHomeworkFolderPath,
   cloneRepositoryWithSsh,
+  courseCodeToDirectory,
   executeCommand,
   findGitHubUrlWithOpenRouter,
   isPathInsideRoot,
   loadEnvironmentFile,
   normalizeGitHubRepositoryUrl,
   resolveGitHubRepositoryUrl,
+  splitGroupCode,
+  transliterateFolderPart,
 } from "../local-server/server.js";
+
+const HOMEWORK_FOLDER = {
+  groupCode: "AI-dev-tools-2026-07",
+  surname: "Иванов",
+  homeworkNumber: 3,
+};
+
+test("builds homework paths with the server OS path implementation", () => {
+  const root = path.join(path.parse(process.cwd()).root, "projects", "otus");
+  assert.equal(
+    buildHomeworkFolderPath(root, HOMEWORK_FOLDER),
+    path.join(root, "AI_Dev_Tools", "2026-07", "homework", "Ivanov", "hw3"),
+  );
+  assert.equal(transliterateFolderPart("Щербаков"), "Shcherbakov");
+  assert.deepEqual(splitGroupCode("AI-dev-tools-2026-04"), {
+    courseCode: "AI-dev-tools",
+    groupDate: "2026-04",
+  });
+  assert.equal(courseCodeToDirectory("Dev-AI-Agents"), "DEV-AI-Agents");
+});
 
 test("recognizes paths inside an allowed root", () => {
   assert.equal(isPathInsideRoot("/projects/otus/course/student", "/projects/otus"), true);
@@ -20,12 +44,12 @@ test("recognizes paths inside an allowed root", () => {
 
 test("validates and opens an allowed folder without a shell", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "otus-command-server-"));
-  const folder = path.join(root, "course", "student");
+  const folder = buildHomeworkFolderPath(root, HOMEWORK_FOLDER);
   await mkdir(folder, { recursive: true });
   let openedPath;
 
   const result = await executeCommand(
-    { command: "open_folder", path: folder },
+    { command: "open_folder", ...HOMEWORK_FOLDER },
     {
       allowedRoot: root,
       openFolder: async (candidate) => {
@@ -40,11 +64,11 @@ test("validates and opens an allowed folder without a shell", async () => {
 
 test("silently creates a missing folder before opening it", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "otus-command-create-"));
-  const folder = path.join(root, "course", "student");
+  const folder = buildHomeworkFolderPath(root, HOMEWORK_FOLDER);
   let openedPath;
 
   const result = await executeCommand(
-    { command: "open_folder", path: folder },
+    { command: "open_folder", ...HOMEWORK_FOLDER },
     {
       allowedRoot: root,
       openFolder: async (candidate) => {
@@ -58,14 +82,14 @@ test("silently creates a missing folder before opening it", async () => {
   assert.equal(openedPath, await realpath(folder));
 });
 
-test("rejects folders outside the allowed root", async () => {
+test("rejects invalid homework folder parameters", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "otus-command-root-"));
   await assert.rejects(
     executeCommand(
-      { command: "open_folder", path: os.tmpdir() },
+      { command: "open_folder", ...HOMEWORK_FOLDER, homeworkNumber: 0 },
       { allowedRoot: root, openFolder: async () => {} },
     ),
-    /path must be inside/,
+    /homeworkNumber must be a positive integer/,
   );
 });
 
@@ -142,6 +166,7 @@ test("requires an .env file and loads the OpenRouter configuration", async () =>
   await assert.rejects(loadEnvironmentFile(envPath), /\.env file is required/);
 
   const names = [
+    "DEFAULT_ALLOWED_ROOT",
     "OPENROUTER_API_KEY",
     "OPENROUTER_URL",
     "OPENROUTER_MODEL",
@@ -152,9 +177,10 @@ test("requires an .env file and loads the OpenRouter configuration", async () =>
   try {
     await writeFile(
       envPath,
-      "OPENROUTER_API_KEY=test-key\nOPENROUTER_URL=https://example.test/chat\nOPENROUTER_MODEL=test/model\nGITHUB_SSH_HOST=artemreva-hub\n",
+      `DEFAULT_ALLOWED_ROOT=${root}\nOPENROUTER_API_KEY=test-key\nOPENROUTER_URL=https://example.test/chat\nOPENROUTER_MODEL=test/model\nGITHUB_SSH_HOST=artemreva-hub\n`,
     );
     await loadEnvironmentFile(envPath);
+    assert.equal(process.env.DEFAULT_ALLOWED_ROOT, root);
     assert.equal(process.env.OPENROUTER_API_KEY, "test-key");
     assert.equal(process.env.OPENROUTER_URL, "https://example.test/chat");
     assert.equal(process.env.OPENROUTER_MODEL, "test/model");
@@ -169,12 +195,12 @@ test("requires an .env file and loads the OpenRouter configuration", async () =>
 
 test("analyzes messages and clones student materials into the folder root", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "otus-command-clone-"));
-  const folder = path.join(root, "course", "student");
+  const folder = buildHomeworkFolderPath(root, HOMEWORK_FOLDER);
   const messages = [{ actor: { id: 7 }, text: "my work" }];
   let cloned;
 
   const result = await executeCommand(
-    { command: "clone_student_materials", path: folder, messages },
+    { command: "clone_student_materials", ...HOMEWORK_FOLDER, messages },
     {
       allowedRoot: root,
       analyzeMessages: async (received) => {
@@ -219,13 +245,13 @@ test("clones through the configured SSH host alias", async () => {
 
 test("logs the student materials resolve flow without logging message contents", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "otus-command-logs-"));
-  const folder = path.join(root, "student");
+  const folder = buildHomeworkFolderPath(root, HOMEWORK_FOLDER);
   const logs = [];
 
   await executeCommand(
     {
       command: "clone_student_materials",
-      path: folder,
+      ...HOMEWORK_FOLDER,
       messages: [{ text: "secret student message" }],
     },
     {
