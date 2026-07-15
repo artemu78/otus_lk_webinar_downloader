@@ -11,7 +11,9 @@ body {
 }
 
 main { padding: 18px; }
-h1 { margin: 0 0 8px; font-size: 18px; }
+.popup-header { display: flex; align-items: center; gap: 9px; margin: 0 0 8px; }
+.popup-logo { width: 28px; height: 28px; flex: 0 0 auto; }
+h1 { margin: 0; font-size: 18px; }
 .lesson { min-height: 20px; margin: 0 0 14px; color: #586174; }
 
 button {
@@ -33,6 +35,38 @@ button[hidden] { display: none; }
 .actions { display: grid; gap: 9px; }
 button.secondary { color: #263238; background: #e2e7ef; }
 button.secondary:hover:not(:disabled) { background: #cfd7e3; }
+.folder-setting { margin: 0 0 14px; }
+.folder-setting[hidden] { display: none; }
+.folder-setting label {
+  display: block;
+  margin: 0 0 6px;
+  color: #586174;
+  font-size: 12px;
+  font-weight: 650;
+}
+.folder-setting-row { display: grid; grid-template-columns: minmax(0, 1fr) 38px; gap: 7px; }
+.folder-setting input {
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid #c4cad4;
+  border-radius: 7px;
+  color: #172033;
+  background: white;
+  font: inherit;
+  font-size: 12px;
+}
+.folder-setting input:focus-visible {
+  border-color: #e53935;
+  outline: 2px solid #ffcdd2;
+}
+.folder-setting input:disabled { background: #eef0f4; opacity: 0.7; }
+button.icon-button {
+  display: grid;
+  width: 38px;
+  padding: 8px;
+  place-items: center;
+}
+button.icon-button svg { width: 20px; height: 20px; fill: currentColor; }
 .status { min-height: 18px; margin: 12px 0 0; font-size: 13px; }
 .status.error { color: #b71c1c; }
 .status.success { color: #1b5e20; }

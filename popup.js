@@ -13,6 +13,9 @@ const homeworkFolderButton = document.querySelector("#homework-folder");
 const homeworkMaterialsButton = document.querySelector("#homework-materials");
 const homeworkResultsButton = document.querySelector("#homework-results");
 const homeworkWarpButton = document.querySelector("#homework-warp");
+const homeworkFolderSetting = document.querySelector("#homework-folder-setting");
+const homeworkFolderInput = document.querySelector("#homework-folder-path");
+const saveHomeworkFolderButton = document.querySelector("#save-homework-folder");
 const lessonButtons = [downloadButton, summaryButton, attendanceButton];
 const homeworkButtons = [
   homeworkFolderButton,
@@ -38,6 +41,8 @@ async function initialize() {
       homeworkIds = parseHomeworkUrl(activeUrl);
       for (const button of lessonButtons) button.hidden = true;
       for (const button of homeworkButtons) button.hidden = false;
+      homeworkFolderSetting.hidden = false;
+      homeworkFolderInput.value = localStorage.getItem(getHomeworkStorageKey()) ?? "";
       lessonElement.textContent = `Студент ${homeworkIds.studentId} · Работа ${homeworkIds.homeworkId}`;
     } else {
       lessonIds = parseLessonUrl(activeUrl);
@@ -78,6 +83,25 @@ downloadButton.addEventListener("click", async () => {
     downloadButton.textContent = "Скачать вебинар";
   }
 });
+
+saveHomeworkFolderButton.addEventListener("click", saveHomeworkFolderPath);
+homeworkFolderInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") saveHomeworkFolderPath();
+});
+
+function saveHomeworkFolderPath() {
+  if (!homeworkIds) return;
+
+  const folderPath = homeworkFolderInput.value.trim();
+  if (folderPath) {
+    localStorage.setItem(getHomeworkStorageKey(), folderPath);
+    homeworkFolderInput.value = folderPath;
+    showStatus("Путь к папке сохранён.", false, true);
+  } else {
+    localStorage.removeItem(getHomeworkStorageKey());
+    showStatus("Сохранённый путь удалён. Следующее действие снова запросит данные OTUS.", false, true);
+  }
+}
 
 homeworkFolderButton.addEventListener("click", async () => {
   if (!homeworkIds) return;
@@ -215,6 +239,7 @@ function getHomeworkPayload() {
 function rememberHomeworkPath(folderPath) {
   if (typeof folderPath === "string" && folderPath) {
     localStorage.setItem(getHomeworkStorageKey(), folderPath);
+    homeworkFolderInput.value = folderPath;
   }
 }
 
@@ -277,6 +302,8 @@ async function generateAndCopyTable(button, loadingText, generator) {
 
 function setActionsDisabled(disabled) {
   for (const button of actionButtons) button.disabled = disabled;
+  saveHomeworkFolderButton.disabled = disabled;
+  homeworkFolderInput.disabled = disabled;
 }
 
 function showStatus(message, isError = false, isSuccess = false) {

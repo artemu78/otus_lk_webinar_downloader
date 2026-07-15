@@ -8,8 +8,34 @@
   </head>
   <body>
     <main>
-      <h1>Otus Teacher Helper</h1>
+      <header class="popup-header">
+        <img class="popup-logo" src="icons/icon.svg" alt="" />
+        <h1>Otus Teacher Helper</h1>
+      </header>
       <p id="lesson" class="lesson">Читаем данные текущего занятия…</p>
+      <div id="homework-folder-setting" class="folder-setting" hidden>
+        <label for="homework-folder-path">Локальная папка работы</label>
+        <div class="folder-setting-row">
+          <input
+            id="homework-folder-path"
+            type="text"
+            placeholder="Путь определится при следующем действии"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button
+            id="save-homework-folder"
+            class="icon-button"
+            type="button"
+            title="Сохранить путь"
+            aria-label="Сохранить путь к локальной папке"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 3h12l2 2v16H5V3Zm2 2v5h9V5H7Zm0 14h10v-6H7v6Zm2-12V5h5v2H9Z" />
+            </svg>
+          </button>
+        </div>
+      </div>
       <div class="actions">
         <button id="download" type="button" disabled>Скачать вебинар</button>
         <button id="summary" class="secondary" type="button" disabled>
