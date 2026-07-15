@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { lstat, mkdir, readFile, readdir, realpath } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -214,6 +214,63 @@ function openInFinder(folderPath) {
         );
     });
   });
+}
+
+function openInWarp(folderPath) {
+  const warpUrl = `warp://action/new_tab?path=${encodeURIComponent(folderPath)}`;
+  return new Promise((resolve, reject) => {
+    const child = spawn("/usr/bin/open", [warpUrl], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let errorOutput = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => {
+      errorOutput += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(errorOutput.trim() || `/usr/bin/open exited with ${code}`));
+    });
+  });
+}
+
+async function readLatestAnalysis(folderPath) {
+  const analysisPath = path.join(folderPath, "analyze_result");
+  let realAnalysisPath;
+  try {
+    realAnalysisPath = await realpath(analysisPath);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new CommandError(404, `analyze_result folder not found in ${folderPath}`);
+    }
+    throw error;
+  }
+  if (!isPathInsideRoot(realAnalysisPath, folderPath)) {
+    throw new CommandError(403, "analyze_result resolves outside the student folder");
+  }
+
+  const entries = await readdir(realAnalysisPath, { withFileTypes: true });
+  const candidates = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== ".txt") continue;
+    const candidatePath = path.join(realAnalysisPath, entry.name);
+    const realCandidatePath = await realpath(candidatePath);
+    if (!isPathInsideRoot(realCandidatePath, realAnalysisPath)) {
+      throw new CommandError(403, "analysis file resolves outside analyze_result");
+    }
+    candidates.push({
+      name: entry.name,
+      path: realCandidatePath,
+      mtimeMs: (await stat(realCandidatePath)).mtimeMs,
+    });
+  }
+  candidates.sort((left, right) => right.mtimeMs - left.mtimeMs);
+  const latest = candidates[0];
+  if (!latest) {
+    throw new CommandError(404, `TXT files not found in ${analysisPath}`);
+  }
+  return { filename: latest.name, content: await readFile(latest.path, "utf8") };
 }
 
 function runCommand(executable, args, options = {}) {
@@ -473,11 +530,35 @@ export async function executeCommand(message, options = {}) {
   const allowedRoot = options.allowedRoot ?? process.env.DEFAULT_ALLOWED_ROOT;
   const openFolder = options.openFolder ?? openInFinder;
 
+  const resolveFolder = () => {
+    const requestedPath = typeof message?.path === "string"
+      ? message.path
+      : buildHomeworkFolderPath(allowedRoot, message);
+    return ensureFolder(requestedPath, allowedRoot);
+  };
+
   if (message?.command === "open_folder") {
-    const requestedPath = buildHomeworkFolderPath(allowedRoot, message);
-    const folderPath = await ensureFolder(requestedPath, allowedRoot);
+    const folderPath = await resolveFolder();
     await openFolder(folderPath);
     return { ok: true, command: "open_folder", path: folderPath };
+  }
+
+  if (message?.command === "open_warp") {
+    const folderPath = await resolveFolder();
+    const openWarp = options.openWarp ?? openInWarp;
+    await openWarp(folderPath);
+    return { ok: true, command: "open_warp", path: folderPath };
+  }
+
+  if (message?.command === "read_latest_analysis") {
+    const folderPath = await resolveFolder();
+    const readAnalysis = options.readAnalysis ?? readLatestAnalysis;
+    return {
+      ok: true,
+      command: "read_latest_analysis",
+      path: folderPath,
+      ...(await readAnalysis(folderPath)),
+    };
   }
 
   if (message?.command === "clone_student_materials") {
@@ -491,7 +572,9 @@ export async function executeCommand(message, options = {}) {
     logResolveFlow(
       "flow.start",
       {
-        requestedPath: buildHomeworkFolderPath(allowedRoot, message),
+        requestedPath: typeof message?.path === "string"
+          ? message.path
+          : buildHomeworkFolderPath(allowedRoot, message),
         messageCount: Array.isArray(message.messages)
           ? message.messages.length
           : null,
@@ -499,10 +582,7 @@ export async function executeCommand(message, options = {}) {
       flowOptions,
     );
     try {
-      const folderPath = await ensureFolder(
-        buildHomeworkFolderPath(allowedRoot, message),
-        allowedRoot,
-      );
+      const folderPath = await resolveFolder();
       logResolveFlow("folder.validated", { folderPath }, flowOptions);
       const rawUrl = await analyzeMessages(message.messages, flowOptions);
       const resolveRepository =

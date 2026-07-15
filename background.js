@@ -46,6 +46,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "OPEN_HOMEWORK_WARP") {
+    runHomeworkPathCommand(message.payload, "open_warp")
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => sendHomeworkError("Opening Warp failed", error, sendResponse));
+    return true;
+  }
+
+  if (message?.type === "READ_HOMEWORK_RESULTS") {
+    runHomeworkPathCommand(message.payload, "read_latest_analysis")
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => sendHomeworkError("Reading homework results failed", error, sendResponse));
+    return true;
+  }
+
   if (message?.type === "OPEN_GOOGLE_SHEET") {
     openGoogleSheet()
       .then((tabId) => sendResponse({ ok: true, tabId }))
@@ -95,13 +109,14 @@ async function fetchOtusJson(url, description) {
 }
 
 async function openHomeworkFolder(ids) {
-  const context = await getHomeworkContext(ids);
-  const result = await sendLocalCommand({ command: "open_folder", ...context.folder });
+  const folder = await getHomeworkFolder(ids);
+  const result = await sendLocalCommand({ command: "open_folder", ...folder });
   return result.path;
 }
 
 async function downloadHomeworkMaterials(ids) {
-  const { folder, messagePayload } = await getHomeworkContext(ids);
+  const messagePayload = await getHomeworkMessages(ids);
+  const folder = await getHomeworkFolder(ids, messagePayload);
   const messages = findStudentMessages(messagePayload, ids.studentId);
   const result = await sendLocalCommand({
     command: "clone_student_materials",
@@ -111,11 +126,35 @@ async function downloadHomeworkMaterials(ids) {
   return { path: result.path, repository: result.repository };
 }
 
-async function getHomeworkContext(ids) {
-  const messagePayload = await fetchOtusJson(
+async function runHomeworkPathCommand(ids, command) {
+  const folder = await getHomeworkFolder(ids);
+  return sendLocalCommand({ command, ...folder });
+}
+
+function sendHomeworkError(prefix, error, sendResponse) {
+  console.error(prefix, error);
+  sendResponse({
+    ok: false,
+    error: error instanceof Error ? error.message : "Непредвиденная ошибка.",
+  });
+}
+
+async function getHomeworkFolder(ids, existingMessagePayload) {
+  if (typeof ids?.cachedPath === "string" && ids.cachedPath) {
+    return { path: ids.cachedPath };
+  }
+  return (await getHomeworkContext(ids, existingMessagePayload)).folder;
+}
+
+async function getHomeworkMessages(ids) {
+  return fetchOtusJson(
     `https://otus.ru/api/teacher-lk/homework/msg/${encodeURIComponent(ids.studentId)}/${encodeURIComponent(ids.homeworkId)}/`,
     "Не удалось получить чат домашней работы",
   );
+}
+
+async function getHomeworkContext(ids, existingMessagePayload) {
+  const messagePayload = existingMessagePayload ?? await getHomeworkMessages(ids);
   const surname = findStudentSurname(messagePayload, ids.studentId);
 
   const homeworkUrl = `https://otus.ru/api/teacher-lk/homework/put/${encodeURIComponent(ids.studentId)}/${encodeURIComponent(ids.homeworkId)}/?`;

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Загрузчик вебинаров OTUS",
-  "version": "1.0.22",
+  "name": "Otus Teacher Helper",
+  "version": "1.0.25",
   "description": "Скачивает доступную запись вебинара для текущего занятия OTUS.",
   "icons": {
     "16": "icons/icon16.png",
@@ -9,7 +9,7 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": ["activeTab", "clipboardWrite", "downloads", "storage"],
+  "permissions": ["activeTab", "clipboardWrite", "downloads", "scripting", "storage"],
   "host_permissions": ["https://otus.ru/*", "http://127.0.0.1:8765/*"],
   "background": {
     "service_worker": "background.js",

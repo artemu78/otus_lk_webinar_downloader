@@ -119,3 +119,56 @@ test("reports an error when the homework is absent from the group journal", asyn
   assert.equal(response.ok, false);
   assert.match(response.error, /Домашняя работа id=47369 не найдена/);
 });
+
+test("uses the cached path for Finder without calling OTUS", async () => {
+  let localCommand;
+  globalThis.fetch = async (url, options = {}) => {
+    assert.equal(url, "http://127.0.0.1:8765/commands");
+    localCommand = JSON.parse(options.body);
+    return jsonResponse({ ok: true, path: localCommand.path });
+  };
+
+  const response = await sendRuntimeMessage({
+    type: "OPEN_HOMEWORK_FOLDER",
+    payload: {
+      studentId: "170836",
+      homeworkId: "47369",
+      cachedPath: "/projects/otus/course/student/hw2",
+    },
+  });
+
+  assert.equal(response.ok, true);
+  assert.deepEqual(localCommand, {
+    command: "open_folder",
+    path: "/projects/otus/course/student/hw2",
+  });
+});
+
+test("reads analysis through the cached homework path", async () => {
+  let localCommand;
+  globalThis.fetch = async (url, options = {}) => {
+    assert.equal(url, "http://127.0.0.1:8765/commands");
+    localCommand = JSON.parse(options.body);
+    return jsonResponse({
+      ok: true,
+      path: localCommand.path,
+      filename: "evaluation.txt",
+      content: "Принято",
+    });
+  };
+
+  const response = await sendRuntimeMessage({
+    type: "READ_HOMEWORK_RESULTS",
+    payload: {
+      studentId: "170836",
+      homeworkId: "47369",
+      cachedPath: "/projects/otus/course/student/hw2",
+    },
+  });
+
+  assert.deepEqual(localCommand, {
+    command: "read_latest_analysis",
+    path: "/projects/otus/course/student/hw2",
+  });
+  assert.equal(response.content, "Принято");
+});

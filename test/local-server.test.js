@@ -82,6 +82,64 @@ test("silently creates a missing folder before opening it", async () => {
   assert.equal(openedPath, await realpath(folder));
 });
 
+test("uses a cached absolute folder path without rebuilding it", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "otus-command-cached-"));
+  const folder = path.join(root, "course", "student", "hw7");
+  let openedPath;
+
+  const result = await executeCommand(
+    { command: "open_folder", path: folder },
+    {
+      allowedRoot: root,
+      openFolder: async (candidate) => {
+        openedPath = candidate;
+      },
+    },
+  );
+
+  assert.equal(result.path, await realpath(folder));
+  assert.equal(openedPath, result.path);
+});
+
+test("opens the cached homework folder in Warp", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "otus-command-warp-"));
+  const folder = path.join(root, "course", "student", "hw2");
+  let openedPath;
+
+  const result = await executeCommand(
+    { command: "open_warp", path: folder },
+    {
+      allowedRoot: root,
+      openWarp: async (candidate) => {
+        openedPath = candidate;
+      },
+    },
+  );
+
+  assert.equal(result.command, "open_warp");
+  assert.equal(openedPath, await realpath(folder));
+});
+
+test("reads the newest TXT file from analyze_result", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "otus-command-analysis-"));
+  const folder = path.join(root, "course", "student", "hw4");
+  const analysisFolder = path.join(folder, "analyze_result");
+  await mkdir(analysisFolder, { recursive: true });
+  await writeFile(path.join(analysisFolder, "older.txt"), "old result");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await writeFile(path.join(analysisFolder, "latest.txt"), "latest result");
+  await writeFile(path.join(analysisFolder, "ignored.md"), "newer but not txt");
+
+  const result = await executeCommand(
+    { command: "read_latest_analysis", path: folder },
+    { allowedRoot: root },
+  );
+
+  assert.equal(result.filename, "latest.txt");
+  assert.equal(result.content, "latest result");
+  assert.equal(result.path, await realpath(folder));
+});
+
 test("rejects invalid homework folder parameters", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "otus-command-root-"));
   await assert.rejects(

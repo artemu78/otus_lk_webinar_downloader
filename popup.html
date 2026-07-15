@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Загрузчик вебинаров OTUS</title>
+    <title>Otus Teacher Helper</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <main>
-      <h1>Вебинар OTUS</h1>
+      <h1>Otus Teacher Helper</h1>
       <p id="lesson" class="lesson">Читаем данные текущего занятия…</p>
       <div class="actions">
         <button id="download" type="button" disabled>Скачать вебинар</button>
@@ -23,6 +23,12 @@
         </button>
         <button id="homework-materials" class="secondary" type="button" hidden disabled>
           Скачать материалы студента
+        </button>
+        <button id="homework-results" class="secondary" type="button" hidden disabled>
+          Вставить результаты проверки
+        </button>
+        <button id="homework-warp" class="secondary" type="button" hidden disabled>
+          Открыть Warp
         </button>
       </div>
       <p id="status" class="status" role="status" aria-live="polite"></p>

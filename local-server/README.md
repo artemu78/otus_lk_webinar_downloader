@@ -23,6 +23,12 @@ Supported endpoints:
   `homeworkNumber` — build the platform-specific path below
   `DEFAULT_ALLOWED_ROOT`, create the directory when necessary, validate it, and
   open it in Finder.
+- `POST /commands` with `open_warp` and the folder parameters or a cached
+  absolute `path` — validate the folder and invoke `/usr/bin/open` with a
+  `warp://action/new_tab?path=...` URL.
+- `POST /commands` with `read_latest_analysis` and the folder parameters or a
+  cached absolute `path` — read the newest `.txt` file directly inside the
+  folder's `analyze_result` directory.
 - `POST /commands` with `clone_student_materials`, the same folder parameters,
   and the student's messages — use OpenRouter to find a GitHub link, resolve a PR's
   source repository with `gh`, then run `git clone` with the SSH host alias from
@@ -40,6 +46,8 @@ Environment variables:
 
 The server never passes paths or URLs through a shell. It invokes `/usr/bin/open`
 and `git`/`gh` with argument arrays after checking both the requested and resolved path.
+Cached absolute paths are accepted only when they remain under
+`DEFAULT_ALLOWED_ROOT`; `analyze_result` is also checked after symlink resolution.
 
 For `clone_student_materials`, the server writes structured lines prefixed with
 `[student-materials]` to stdout. They include a flow ID, OpenRouter status,
