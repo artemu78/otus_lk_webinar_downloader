@@ -3,6 +3,10 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
+    "test:coverage": "c8 --reporter=text --reporter=html node --test",
     "local-server": "node local-server/server.js"
+  },
+  "devDependencies": {
+    "c8": "^11.0.0"
   }
 }

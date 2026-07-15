@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Otus Teacher Helper",
-  "version": "1.0.25",
+  "version": "1.0.26",
   "description": "Скачивает доступную запись вебинара для текущего занятия OTUS.",
   "icons": {
     "16": "icons/icon16.png",
