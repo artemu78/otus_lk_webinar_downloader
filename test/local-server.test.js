@@ -204,7 +204,9 @@ test("asks the configured OpenRouter model for a JSON GitHub URL", async () => {
         request = { endpoint, options };
         return {
           ok: true,
-          json: async () => ({
+          status: 200,
+          headers: { get: () => "application/json" },
+          text: async () => JSON.stringify({
             choices: [{ message: { content: '{"github_url":"https://github.com/me/work"}' } }],
           }),
         };
@@ -216,6 +218,63 @@ test("asks the configured OpenRouter model for a JSON GitHub URL", async () => {
   assert.equal(request.options.headers.Authorization, "Bearer test-key");
   assert.equal(request.endpoint, "https://openrouter.example/api/chat");
   assert.equal(JSON.parse(request.options.body).model, "deepseek/test-model");
+});
+
+test("logs malformed OpenRouter assistant content with useful diagnostics", async () => {
+  const logs = [];
+
+  await assert.rejects(
+    findGitHubUrlWithOpenRouter([{ text: "solution link" }], {
+      apiKey: "test-key",
+      openRouterUrl: "https://openrouter.example/api/chat",
+      openRouterModel: "test/model",
+      flowId: "parse-failure",
+      logger: (line) => logs.push(line),
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        headers: { get: () => "application/json" },
+        text: async () => JSON.stringify({
+          choices: [{
+            finish_reason: "length",
+            native_finish_reason: "MAX_TOKENS",
+            message: { content: "not json" },
+          }],
+        }),
+      }),
+    }),
+    /assistant content was not valid JSON/,
+  );
+
+  const output = logs.join("\n");
+  assert.match(output, /"finishReason":"length"/);
+  assert.match(output, /"nativeFinishReason":"MAX_TOKENS"/);
+  assert.match(output, /openrouter\.assistant-content\.invalid-json/);
+  assert.match(output, /"contentPreview":"not json"/);
+  assert.doesNotMatch(output, /test-key/);
+});
+
+test("distinguishes a malformed OpenRouter response body", async () => {
+  const logs = [];
+
+  await assert.rejects(
+    findGitHubUrlWithOpenRouter([{ text: "solution link" }], {
+      apiKey: "test-key",
+      openRouterUrl: "https://openrouter.example/api/chat",
+      openRouterModel: "test/model",
+      logger: (line) => logs.push(line),
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        headers: { get: () => "text/html" },
+        text: async () => "<html>upstream error</html>",
+      }),
+    }),
+    /response body was not valid JSON/,
+  );
+
+  assert.match(logs.join("\n"), /openrouter\.response\.invalid-json/);
+  assert.match(logs.join("\n"), /"contentType":"text\/html"/);
 });
 
 test("requires an .env file and loads the OpenRouter configuration", async () => {

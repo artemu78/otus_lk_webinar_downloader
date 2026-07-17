@@ -89,7 +89,9 @@ export function findGroupData(payload, groupId) {
     throw new Error("В ответе домашней работы отсутствует массив data.groups.");
   }
 
-  const group = groups.find((candidate) => String(candidate?.id) === String(groupId));
+  const group = groups.find(
+    (candidate) => String(candidate?.id) === String(groupId),
+  );
   if (!group) {
     throw new Error("Группа не найдена в списке групп.");
   }
@@ -118,7 +120,12 @@ export function findWebinarDownloadUrl(payload) {
   const webinar = media.find(
     (item) => item?.type === "webinar" && item?.is_private === false,
   );
-  const downloadUrl = webinar?.attrs?.download_url;
+  let downloadUrl = webinar?.attrs?.download_url;
+
+  // иногда, если записи ещё нет, download_url может быть пустым, но ссылка на запись всё равно есть в media.link
+  if (typeof downloadUrl !== "string" || downloadUrl.length === 0) {
+    downloadUrl = webinar?.media?.link;
+  }
 
   if (typeof downloadUrl !== "string" || downloadUrl.length === 0) {
     throw new Error("Для этого занятия не найдена доступная запись вебинара.");

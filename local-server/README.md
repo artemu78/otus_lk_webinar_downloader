@@ -54,3 +54,7 @@ For `clone_student_materials`, the server writes structured lines prefixed with
 extracted and normalized URLs, PR source resolution, the exact safe `gh`
 argument array, target folder, completion, and errors. API keys and student
 message contents are never logged.
+When OpenRouter parsing fails, diagnostics distinguish an invalid HTTP response
+body from invalid assistant content and include response metadata, finish
+reasons, lengths, and a whitespace-normalized preview capped at 400 characters.
+The preview is emitted only for malformed data; API keys are never logged.

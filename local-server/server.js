@@ -391,7 +391,15 @@ export async function resolveGitHubRepositoryUrl(rawUrl, options = {}) {
   return sourceRepositoryUrl;
 }
 
-function parseOpenRouterUrl(content) {
+function previewForLog(value, maxLength = 400) {
+  if (typeof value !== "string") return null;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > maxLength
+    ? `${normalized.slice(0, maxLength)}...[truncated]`
+    : normalized;
+}
+
+function parseOpenRouterUrl(content, options = {}) {
   const cleaned = String(content)
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
@@ -399,8 +407,21 @@ function parseOpenRouterUrl(content) {
   let parsed;
   try {
     parsed = JSON.parse(cleaned);
-  } catch {
-    throw new CommandError(502, "OpenRouter returned invalid JSON");
+  } catch (error) {
+    logResolveFlow(
+      "openrouter.assistant-content.invalid-json",
+      {
+        contentType: content === null ? "null" : typeof content,
+        contentLength: typeof content === "string" ? content.length : null,
+        contentPreview: previewForLog(content),
+        parseError: error instanceof Error ? error.message : "unknown parse error",
+      },
+      options,
+    );
+    throw new CommandError(
+      502,
+      "OpenRouter assistant content was not valid JSON",
+    );
   }
   if (typeof parsed?.github_url !== "string") {
     throw new CommandError(
@@ -463,10 +484,46 @@ export async function findGitHubUrlWithOpenRouter(messages, options = {}) {
       ],
     }),
   });
-  const payload = await response.json().catch(() => ({}));
+  const responseText = await response.text();
+  let payload;
+  try {
+    payload = JSON.parse(responseText);
+  } catch (error) {
+    logResolveFlow(
+      "openrouter.response.invalid-json",
+      {
+        status: response.status,
+        contentType: response.headers?.get?.("content-type") ?? null,
+        bodyLength: responseText.length,
+        bodyPreview: previewForLog(responseText),
+        parseError: error instanceof Error ? error.message : "unknown parse error",
+      },
+      options,
+    );
+    throw new CommandError(502, "OpenRouter response body was not valid JSON");
+  }
+  const firstChoice = payload?.choices?.[0];
+  const assistantContent = firstChoice?.message?.content;
   logResolveFlow(
     "openrouter.response",
-    { status: response.status, ok: response.ok },
+    {
+      status: response.status,
+      ok: response.ok,
+      contentType: response.headers?.get?.("content-type") ?? null,
+      bodyLength: responseText.length,
+      responseKeys: payload && typeof payload === "object"
+        ? Object.keys(payload)
+        : [],
+      choiceCount: Array.isArray(payload?.choices) ? payload.choices.length : null,
+      finishReason: firstChoice?.finish_reason ?? null,
+      nativeFinishReason: firstChoice?.native_finish_reason ?? null,
+      assistantContentType: assistantContent === null
+        ? "null"
+        : typeof assistantContent,
+      assistantContentLength: typeof assistantContent === "string"
+        ? assistantContent.length
+        : null,
+    },
     options,
   );
   if (!response.ok) {
@@ -475,7 +532,7 @@ export async function findGitHubUrlWithOpenRouter(messages, options = {}) {
       payload?.error?.message ?? `OpenRouter returned ${response.status}`,
     );
   }
-  const githubUrl = parseOpenRouterUrl(payload?.choices?.[0]?.message?.content);
+  const githubUrl = parseOpenRouterUrl(assistantContent, options);
   logResolveFlow("openrouter.url.extracted", { githubUrl }, options);
   return githubUrl;
 }
