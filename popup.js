@@ -14,9 +14,13 @@ const homeworkFolderButton = document.querySelector("#homework-folder");
 const homeworkMaterialsButton = document.querySelector("#homework-materials");
 const homeworkResultsButton = document.querySelector("#homework-results");
 const homeworkWarpButton = document.querySelector("#homework-warp");
-const homeworkFolderSetting = document.querySelector("#homework-folder-setting");
+const homeworkFolderSetting = document.querySelector(
+  "#homework-folder-setting"
+);
 const homeworkFolderInput = document.querySelector("#homework-folder-path");
-const saveHomeworkFolderButton = document.querySelector("#save-homework-folder");
+const saveHomeworkFolderButton = document.querySelector(
+  "#save-homework-folder"
+);
 const lessonButtons = [downloadButton, summaryButton, attendanceButton];
 const homeworkButtons = [
   homeworkFolderButton,
@@ -43,7 +47,8 @@ async function initialize() {
       for (const button of lessonButtons) button.hidden = true;
       for (const button of homeworkButtons) button.hidden = false;
       homeworkFolderSetting.hidden = false;
-      homeworkFolderInput.value = localStorage.getItem(getHomeworkStorageKey()) ?? "";
+      homeworkFolderInput.value =
+        localStorage.getItem(getHomeworkStorageKey()) ?? "";
       lessonElement.textContent = `Студент ${homeworkIds.studentId} · Работа ${homeworkIds.homeworkId}`;
     } else {
       lessonIds = parseLessonUrl(activeUrl);
@@ -54,7 +59,7 @@ async function initialize() {
     lessonElement.textContent = "Занятие OTUS не найдено";
     showStatus(
       error instanceof Error ? error.message : "Непредвиденная ошибка.",
-      true,
+      true
     );
   }
 }
@@ -77,7 +82,7 @@ downloadButton.addEventListener("click", async () => {
   } catch (error) {
     showStatus(
       error instanceof Error ? error.message : "Непредвиденная ошибка.",
-      true,
+      true
     );
   } finally {
     setActionsDisabled(false);
@@ -100,7 +105,11 @@ function saveHomeworkFolderPath() {
     showStatus("Путь к папке сохранён.", false, true);
   } else {
     localStorage.removeItem(getHomeworkStorageKey());
-    showStatus("Сохранённый путь удалён. Следующее действие снова запросит данные OTUS.", false, true);
+    showStatus(
+      "Сохранённый путь удалён. Следующее действие снова запросит данные OTUS.",
+      false,
+      true
+    );
   }
 }
 
@@ -124,7 +133,7 @@ homeworkFolderButton.addEventListener("click", async () => {
   } catch (error) {
     showStatus(
       error instanceof Error ? error.message : "Непредвиденная ошибка.",
-      true,
+      true
     );
   } finally {
     setActionsDisabled(false);
@@ -145,14 +154,16 @@ homeworkMaterialsButton.addEventListener("click", async () => {
       payload: getHomeworkPayload(),
     });
     if (!result?.ok) {
-      throw new Error(result?.error ?? "Не удалось скачать материалы студента.");
+      throw new Error(
+        result?.error ?? "Не удалось скачать материалы студента."
+      );
     }
     rememberHomeworkPath(result.path);
     showStatus(`Материалы скачаны в ${result.path}`, false, true);
   } catch (error) {
     showStatus(
       error instanceof Error ? error.message : "Непредвиденная ошибка.",
-      true,
+      true
     );
   } finally {
     setActionsDisabled(false);
@@ -173,10 +184,15 @@ homeworkResultsButton.addEventListener("click", async () => {
       payload: getHomeworkPayload(),
     });
     if (!result?.ok) {
-      throw new Error(result?.error ?? "Не удалось прочитать результаты проверки.");
+      throw new Error(
+        result?.error ?? "Не удалось прочитать результаты проверки."
+      );
     }
     rememberHomeworkPath(result.path);
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
     if (typeof tab?.id !== "number") {
       throw new Error("Не удалось определить активную вкладку.");
     }
@@ -192,7 +208,7 @@ homeworkResultsButton.addEventListener("click", async () => {
   } catch (error) {
     showStatus(
       error instanceof Error ? error.message : "Непредвиденная ошибка.",
-      true,
+      true
     );
   } finally {
     setActionsDisabled(false);
@@ -220,7 +236,7 @@ homeworkWarpButton.addEventListener("click", async () => {
   } catch (error) {
     showStatus(
       error instanceof Error ? error.message : "Непредвиденная ошибка.",
-      true,
+      true
     );
   } finally {
     setActionsDisabled(false);
@@ -250,7 +266,7 @@ function insertIntoFirstTextarea(content) {
 
   const setter = Object.getOwnPropertyDescriptor(
     HTMLTextAreaElement.prototype,
-    "value",
+    "value"
   )?.set;
   if (setter) setter.call(textarea, content);
   else textarea.value = content;
@@ -264,16 +280,16 @@ summaryButton.addEventListener("click", () =>
   generateAndCopyTable(
     summaryButton,
     "Формируем сводную таблицу… Не закрывайте окно",
-    generateSummaryTableTSV,
-  ),
+    generateSummaryTableTSV
+  )
 );
 
 attendanceButton.addEventListener("click", () =>
   generateAndCopyTable(
     attendanceButton,
     "Формируем таблицу посещаемости… Не закрывайте окно",
-    generateAttendanceTableTSV,
-  ),
+    generateAttendanceTableTSV
+  )
 );
 
 async function generateAndCopyTable(button, loadingText, generator) {
@@ -295,7 +311,7 @@ async function generateAndCopyTable(button, loadingText, generator) {
   } catch (error) {
     showStatus(
       error instanceof Error ? error.message : "Непредвиденная ошибка.",
-      true,
+      true
     );
   } finally {
     setActionsDisabled(false);

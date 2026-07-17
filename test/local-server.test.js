@@ -27,7 +27,7 @@ test("builds homework paths with the server OS path implementation", () => {
   const root = path.join(path.parse(process.cwd()).root, "projects", "otus");
   assert.equal(
     buildHomeworkFolderPath(root, HOMEWORK_FOLDER),
-    path.join(root, "AI_Dev_Tools", "2026-07", "homework", "Ivanov", "hw3"),
+    path.join(root, "AI_Dev_Tools", "2026-07", "homework", "Ivanov", "hw3")
   );
   assert.equal(transliterateFolderPart("Щербаков"), "Shcherbakov");
   assert.deepEqual(splitGroupCode("AI-dev-tools-2026-04"), {
@@ -38,7 +38,10 @@ test("builds homework paths with the server OS path implementation", () => {
 });
 
 test("recognizes paths inside an allowed root", () => {
-  assert.equal(isPathInsideRoot("/projects/otus/course/student", "/projects/otus"), true);
+  assert.equal(
+    isPathInsideRoot("/projects/otus/course/student", "/projects/otus"),
+    true
+  );
   assert.equal(isPathInsideRoot("/projects/other", "/projects/otus"), false);
 });
 
@@ -55,7 +58,7 @@ test("validates and opens an allowed folder without a shell", async () => {
       openFolder: async (candidate) => {
         openedPath = candidate;
       },
-    },
+    }
   );
 
   assert.equal(result.ok, true);
@@ -74,7 +77,7 @@ test("silently creates a missing folder before opening it", async () => {
       openFolder: async (candidate) => {
         openedPath = candidate;
       },
-    },
+    }
   );
 
   assert.equal(result.ok, true);
@@ -94,7 +97,7 @@ test("uses a cached absolute folder path without rebuilding it", async () => {
       openFolder: async (candidate) => {
         openedPath = candidate;
       },
-    },
+    }
   );
 
   assert.equal(result.path, await realpath(folder));
@@ -113,7 +116,7 @@ test("opens the cached homework folder in Warp", async () => {
       openWarp: async (candidate) => {
         openedPath = candidate;
       },
-    },
+    }
   );
 
   assert.equal(result.command, "open_warp");
@@ -132,7 +135,7 @@ test("reads the newest TXT file from analyze_result", async () => {
 
   const result = await executeCommand(
     { command: "read_latest_analysis", path: folder },
-    { allowedRoot: root },
+    { allowedRoot: root }
   );
 
   assert.equal(result.filename, "latest.txt");
@@ -145,31 +148,31 @@ test("rejects invalid homework folder parameters", async () => {
   await assert.rejects(
     executeCommand(
       { command: "open_folder", ...HOMEWORK_FOLDER, homeworkNumber: 0 },
-      { allowedRoot: root, openFolder: async () => {} },
+      { allowedRoot: root, openFolder: async () => {} }
     ),
-    /homeworkNumber must be a positive integer/,
+    /homeworkNumber must be a positive integer/
   );
 });
 
 test("rejects unsupported commands", async () => {
   await assert.rejects(
     executeCommand({ command: "run_shell", path: "/tmp" }),
-    /unsupported command/,
+    /unsupported command/
   );
 });
 
 test("normalizes repository and pull request GitHub URLs", () => {
   assert.equal(
     normalizeGitHubRepositoryUrl("https://github.com/student/homework.git"),
-    "https://github.com/student/homework",
+    "https://github.com/student/homework"
   );
   assert.equal(
     normalizeGitHubRepositoryUrl("https://github.com/student/homework/pull/7"),
-    "https://github.com/student/homework",
+    "https://github.com/student/homework"
   );
   assert.throws(
     () => normalizeGitHubRepositoryUrl("https://example.com/student/homework"),
-    /must use https:\/\/github.com/,
+    /must use https:\/\/github.com/
   );
 });
 
@@ -185,7 +188,7 @@ test("uses gh to resolve the source repository of a pull request", async () => {
           headRepositoryOwner: { login: "student" },
         });
       },
-    },
+    }
   );
   assert.equal(repository, "https://github.com/student/student-solution");
   assert.equal(invocation.executable, "gh");
@@ -194,25 +197,29 @@ test("uses gh to resolve the source repository of a pull request", async () => {
 
 test("asks the configured OpenRouter model for a JSON GitHub URL", async () => {
   let request;
-  const url = await findGitHubUrlWithOpenRouter(
-    [{ text: "solution link" }],
-    {
-      apiKey: "test-key",
-      openRouterUrl: "https://openrouter.example/api/chat",
-      openRouterModel: "deepseek/test-model",
-      fetchImpl: async (endpoint, options) => {
-        request = { endpoint, options };
-        return {
-          ok: true,
-          status: 200,
-          headers: { get: () => "application/json" },
-          text: async () => JSON.stringify({
-            choices: [{ message: { content: '{"github_url":"https://github.com/me/work"}' } }],
+  const url = await findGitHubUrlWithOpenRouter([{ text: "solution link" }], {
+    apiKey: "test-key",
+    openRouterUrl: "https://openrouter.example/api/chat",
+    openRouterModel: "deepseek/test-model",
+    fetchImpl: async (endpoint, options) => {
+      request = { endpoint, options };
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => "application/json" },
+        text: async () =>
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: '{"github_url":"https://github.com/me/work"}',
+                },
+              },
+            ],
           }),
-        };
-      },
+      };
     },
-  );
+  });
 
   assert.equal(url, "https://github.com/me/work");
   assert.equal(request.options.headers.Authorization, "Bearer test-key");
@@ -234,16 +241,19 @@ test("logs malformed OpenRouter assistant content with useful diagnostics", asyn
         ok: true,
         status: 200,
         headers: { get: () => "application/json" },
-        text: async () => JSON.stringify({
-          choices: [{
-            finish_reason: "length",
-            native_finish_reason: "MAX_TOKENS",
-            message: { content: "not json" },
-          }],
-        }),
+        text: async () =>
+          JSON.stringify({
+            choices: [
+              {
+                finish_reason: "length",
+                native_finish_reason: "MAX_TOKENS",
+                message: { content: "not json" },
+              },
+            ],
+          }),
       }),
     }),
-    /assistant content was not valid JSON/,
+    /assistant content was not valid JSON/
   );
 
   const output = logs.join("\n");
@@ -270,7 +280,7 @@ test("distinguishes a malformed OpenRouter response body", async () => {
         text: async () => "<html>upstream error</html>",
       }),
     }),
-    /response body was not valid JSON/,
+    /response body was not valid JSON/
   );
 
   assert.match(logs.join("\n"), /openrouter\.response\.invalid-json/);
@@ -289,12 +299,14 @@ test("requires an .env file and loads the OpenRouter configuration", async () =>
     "OPENROUTER_MODEL",
     "GITHUB_SSH_HOST",
   ];
-  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  const previous = Object.fromEntries(
+    names.map((name) => [name, process.env[name]])
+  );
   for (const name of names) delete process.env[name];
   try {
     await writeFile(
       envPath,
-      `DEFAULT_ALLOWED_ROOT=${root}\nOPENROUTER_API_KEY=test-key\nOPENROUTER_URL=https://example.test/chat\nOPENROUTER_MODEL=test/model\nGITHUB_SSH_HOST=artemreva-hub\n`,
+      `DEFAULT_ALLOWED_ROOT=${root}\nOPENROUTER_API_KEY=test-key\nOPENROUTER_URL=https://example.test/chat\nOPENROUTER_MODEL=test/model\nGITHUB_SSH_HOST=artemreva-hub\n`
     );
     await loadEnvironmentFile(envPath);
     assert.equal(process.env.DEFAULT_ALLOWED_ROOT, root);
@@ -328,7 +340,7 @@ test("analyzes messages and clones student materials into the folder root", asyn
       cloneRepository: async (repository, candidate) => {
         cloned = { repository, candidate };
       },
-    },
+    }
   );
 
   assert.equal(result.repository, "https://github.com/student/fork");
@@ -337,7 +349,9 @@ test("analyzes messages and clones student materials into the folder root", asyn
 });
 
 test("clones through the configured SSH host alias", async () => {
-  const folder = await mkdtemp(path.join(os.tmpdir(), "otus-command-gh-clone-"));
+  const folder = await mkdtemp(
+    path.join(os.tmpdir(), "otus-command-gh-clone-")
+  );
   let invocation;
 
   await cloneRepositoryWithSsh(
@@ -348,7 +362,7 @@ test("clones through the configured SSH host alias", async () => {
       run: async (executable, args, options) => {
         invocation = { executable, args, options };
       },
-    },
+    }
   );
 
   assert.equal(invocation.executable, "git");
@@ -362,7 +376,6 @@ test("clones through the configured SSH host alias", async () => {
 
 test("logs the student materials resolve flow without logging message contents", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "otus-command-logs-"));
-  const folder = buildHomeworkFolderPath(root, HOMEWORK_FOLDER);
   const logs = [];
 
   await executeCommand(
@@ -378,7 +391,7 @@ test("logs the student materials resolve flow without logging message contents",
       analyzeMessages: async () => "https://github.com/student/homework",
       resolveRepository: async (url) => url,
       cloneRepository: async () => {},
-    },
+    }
   );
 
   assert.match(logs.join("\n"), /flow.start/);

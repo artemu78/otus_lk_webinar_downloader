@@ -11,14 +11,14 @@ export function parseLessonUrl(rawUrl) {
 
   if (url.protocol !== "https:" || url.hostname !== "otus.ru") {
     throw new Error(
-      "Сначала откройте страницу занятия в кабинете преподавателя OTUS.",
+      "Сначала откройте страницу занятия в кабинете преподавателя OTUS."
     );
   }
 
   const match = url.pathname.match(LESSON_PATH_RE);
   if (!match) {
     throw new Error(
-      "Не удалось определить программу и занятие по этому адресу.",
+      "Не удалось определить программу и занятие по этому адресу."
     );
   }
 
@@ -35,14 +35,14 @@ export function parseHomeworkUrl(rawUrl) {
 
   if (url.protocol !== "https:" || url.hostname !== "otus.ru") {
     throw new Error(
-      "Сначала откройте домашнюю работу в кабинете преподавателя OTUS.",
+      "Сначала откройте домашнюю работу в кабинете преподавателя OTUS."
     );
   }
 
   const match = url.pathname.match(HOMEWORK_PATH_RE);
   if (!match) {
     throw new Error(
-      "Не удалось определить студента и домашнюю работу по этому адресу.",
+      "Не удалось определить студента и домашнюю работу по этому адресу."
     );
   }
 
@@ -56,12 +56,12 @@ export function findStudentSurname(payload, studentId) {
   }
 
   const message = chat.find(
-    (candidate) => String(candidate?.actor?.id) === String(studentId),
+    (candidate) => String(candidate?.actor?.id) === String(studentId)
   );
   const surname = message?.actor?.lname;
   if (typeof surname !== "string" || !surname.trim()) {
     throw new Error(
-      "Не удалось найти фамилию студента в чате домашней работы.",
+      "Не удалось найти фамилию студента в чате домашней работы."
     );
   }
 
@@ -75,7 +75,7 @@ export function findStudentMessages(payload, studentId) {
   }
 
   const messages = chat.filter(
-    (candidate) => String(candidate?.actor?.id) === String(studentId),
+    (candidate) => String(candidate?.actor?.id) === String(studentId)
   );
   if (messages.length === 0) {
     throw new Error("В чате домашней работы не найдены сообщения студента.");
@@ -90,7 +90,7 @@ export function findGroupData(payload, groupId) {
   }
 
   const group = groups.find(
-    (candidate) => String(candidate?.id) === String(groupId),
+    (candidate) => String(candidate?.id) === String(groupId)
   );
   if (!group) {
     throw new Error("Группа не найдена в списке групп.");
@@ -104,7 +104,7 @@ export function buildLessonApiUrl({ programId, lessonId }) {
   const pathLessonId = encodeURIComponent(lessonId);
   const url = new URL(
     `/api/teacher-lk/programs/${pathProgramId}/lesson/${pathLessonId}/`,
-    "https://otus.ru",
+    "https://otus.ru"
   );
   url.searchParams.set("lessonId", lessonId);
   url.searchParams.set("programId", programId);
@@ -118,7 +118,7 @@ export function findWebinarDownloadUrl(payload) {
   }
 
   const webinar = media.find(
-    (item) => item?.type === "webinar" && item?.is_private === false,
+    (item) => item?.type === "webinar" && item?.is_private === false
   );
   let downloadUrl = webinar?.attrs?.download_url;
 
@@ -139,7 +139,7 @@ export function findWebinarDownloadUrl(payload) {
   }
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
     throw new Error(
-      "Адрес записи вебинара использует неподдерживаемый протокол.",
+      "Адрес записи вебинара использует неподдерживаемый протокол."
     );
   }
 
@@ -241,13 +241,13 @@ export function buildAttendanceTableTSV({ lessonCache, masterStudents }) {
   const header = [
     "Student Name",
     ...lessonCache.map((lesson, index) =>
-      quoteTsv(`L${index + 1}: ${lesson.title || ""}`),
+      quoteTsv(`L${index + 1}: ${lesson.title || ""}`)
     ),
   ];
 
   const rows = [...masterStudents.entries()].map(([studentId, studentName]) => {
     const attendance = lessonCache.map((lesson) =>
-      getAttendedIds(lesson).has(studentId) ? '"🟢"' : '"🔴"',
+      getAttendedIds(lesson).has(studentId) ? '"🟢"' : '"🔴"'
     );
     return [quoteTsv(studentName), ...attendance].join("\t");
   });
@@ -258,7 +258,7 @@ export function buildAttendanceTableTSV({ lessonCache, masterStudents }) {
 export async function collectWebinarData(
   programId,
   fetchImpl = fetch,
-  onProgress = () => {},
+  onProgress = () => {}
 ) {
   if (!programId) {
     throw new Error("Не указан идентификатор программы.");
@@ -271,21 +271,21 @@ export async function collectWebinarData(
   onProgress("1/3 Получаем данные программы… Не закрывайте окно");
   const courseData = await fetchImpl(
     `https://otus.ru/api/teacher-lk/programs/${programId}/get/?id=${programId}`,
-    requestOptions,
+    requestOptions
   ).then((response) => response.json());
   const lessons = courseData.data.modules.flatMap(
-    (module) => module.lessons || [],
+    (module) => module.lessons || []
   );
 
   const lessonCache = [];
 
   for (const [index, lesson] of lessons.entries()) {
     onProgress(
-      `2/3 Получаем данные занятий… (${index + 1}/${lessons.length}). Не закрывайте окно`,
+      `2/3 Получаем данные занятий… (${index + 1}/${lessons.length}). Не закрывайте окно`
     );
     const lessonData = await fetchImpl(
       `https://otus.ru/api/teacher-lk/programs/${programId}/lesson/${lesson.id}/?lessonId=${lesson.id}&programId=${programId}`,
-      requestOptions,
+      requestOptions
     ).then((response) => response.json());
     lessonCache.push({
       id: lesson.id,
@@ -299,7 +299,7 @@ export async function collectWebinarData(
 
   for (const [index, lesson] of lessonCache.entries()) {
     onProgress(
-      `3/3 Получаем данные посещаемости… (${index + 1}/${lessonCache.length}). Не закрывайте окно`,
+      `3/3 Получаем данные посещаемости… (${index + 1}/${lessonCache.length}). Не закрывайте окно`
     );
 
     let onlineUsers = [];
@@ -309,7 +309,7 @@ export async function collectWebinarData(
     if (lesson.scheduleId) {
       const visitorsData = await fetchImpl(
         `https://otus.ru/api/teacher-lk/schedules/${lesson.scheduleId}/visitors/?id=${lesson.scheduleId}`,
-        requestOptions,
+        requestOptions
       ).then((response) => response.json());
       const visitorData = visitorsData.data || {};
 
@@ -341,20 +341,20 @@ export async function collectWebinarData(
 export async function generateSummaryTableTSV(
   programId,
   fetchImpl = fetch,
-  onProgress,
+  onProgress
 ) {
   return buildSummaryTableTSV(
-    await collectWebinarData(programId, fetchImpl, onProgress),
+    await collectWebinarData(programId, fetchImpl, onProgress)
   );
 }
 
 export async function generateAttendanceTableTSV(
   programId,
   fetchImpl = fetch,
-  onProgress,
+  onProgress
 ) {
   return buildAttendanceTableTSV(
-    await collectWebinarData(programId, fetchImpl, onProgress),
+    await collectWebinarData(programId, fetchImpl, onProgress)
   );
 }
 
@@ -374,7 +374,7 @@ export async function extractWebinarData() {
   }
 
   console.log(
-    `Fetching data for program: ${programId}. This might take a minute...`,
+    `Fetching data for program: ${programId}. This might take a minute...`
   );
 
   try {

@@ -33,7 +33,11 @@ function sendRuntimeMessage(message) {
   return new Promise((resolve, reject) => {
     const keepChannelOpen = messageListener(message, {}, resolve);
     if (keepChannelOpen !== true) {
-      reject(new Error("The background listener did not keep the response channel open."));
+      reject(
+        new Error(
+          "The background listener did not keep the response channel open."
+        )
+      );
     }
   });
 }

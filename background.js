@@ -30,7 +30,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         console.error("Downloading homework materials failed", error);
         sendResponse({
           ok: false,
-          error: error instanceof Error ? error.message : "Непредвиденная ошибка.",
+          error:
+            error instanceof Error ? error.message : "Непредвиденная ошибка.",
         });
       });
 
@@ -44,7 +45,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         console.error("Opening homework folder failed", error);
         sendResponse({
           ok: false,
-          error: error instanceof Error ? error.message : "Непредвиденная ошибка.",
+          error:
+            error instanceof Error ? error.message : "Непредвиденная ошибка.",
         });
       });
 
@@ -54,14 +56,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === EXTENSION_MESSAGES.OPEN_HOMEWORK_WARP) {
     runHomeworkPathCommand(message.payload, LOCAL_COMMANDS.OPEN_WARP)
       .then((result) => sendResponse({ ok: true, ...result }))
-      .catch((error) => sendHomeworkError("Opening Warp failed", error, sendResponse));
+      .catch((error) =>
+        sendHomeworkError("Opening Warp failed", error, sendResponse)
+      );
     return true;
   }
 
   if (message?.type === EXTENSION_MESSAGES.READ_HOMEWORK_RESULTS) {
     runHomeworkPathCommand(message.payload, LOCAL_COMMANDS.READ_LATEST_ANALYSIS)
       .then((result) => sendResponse({ ok: true, ...result }))
-      .catch((error) => sendHomeworkError("Reading homework results failed", error, sendResponse));
+      .catch((error) =>
+        sendHomeworkError(
+          "Reading homework results failed",
+          error,
+          sendResponse
+        )
+      );
     return true;
   }
 
@@ -72,7 +82,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         console.error("Opening Google Sheets failed", error);
         sendResponse({
           ok: false,
-          error: error instanceof Error ? error.message : "Непредвиденная ошибка.",
+          error:
+            error instanceof Error ? error.message : "Непредвиденная ошибка.",
         });
       });
 
@@ -95,7 +106,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       console.error("OTUS webinar download failed", error);
       sendResponse({
         ok: false,
-        error: error instanceof Error ? error.message : "Непредвиденная ошибка.",
+        error:
+          error instanceof Error ? error.message : "Непредвиденная ошибка.",
       });
     });
 
@@ -157,32 +169,37 @@ async function getHomeworkFolder(ids, existingMessagePayload) {
 async function getHomeworkMessages(ids) {
   return fetchOtusJson(
     `https://otus.ru/api/teacher-lk/homework/msg/${encodeURIComponent(ids.studentId)}/${encodeURIComponent(ids.homeworkId)}/`,
-    "Не удалось получить чат домашней работы",
+    "Не удалось получить чат домашней работы"
   );
 }
 
 async function getHomeworkContext(ids, existingMessagePayload) {
-  const messagePayload = existingMessagePayload ?? await getHomeworkMessages(ids);
+  const messagePayload =
+    existingMessagePayload ?? (await getHomeworkMessages(ids));
   const surname = findStudentSurname(messagePayload, ids.studentId);
 
   const homeworkUrl = `https://otus.ru/api/teacher-lk/homework/put/${encodeURIComponent(ids.studentId)}/${encodeURIComponent(ids.homeworkId)}/?`;
   const homeworkData = await fetchOtusJson(
     homeworkUrl,
-    "Не удалось получить данные домашней работы url=" + homeworkUrl,
+    "Не удалось получить данные домашней работы url=" + homeworkUrl
   );
   const groupId = homeworkData?.data?.homework?.group_id;
 
   const groupUrl = `https://otus.ru/api/teacher-lk/homework/journal/${groupId}/?groupId=${groupId}`;
   const groupData = await fetchOtusJson(
     groupUrl,
-    "Не удалось получить данные группы",
+    "Не удалось получить данные группы"
   );
   // groupData.data.group.title contains group code like "AI_Dev_Tools_2025-10"
   const groupCode = groupData?.data?.group?.title;
-  const homeworkNumber = groupData.data.homeworks.findIndex((item) => {return item.id==ids.homeworkId});
+  const homeworkNumber = groupData.data.homeworks.findIndex((item) => {
+    return item.id == ids.homeworkId;
+  });
 
   if (homeworkNumber === -1) {
-    throw new Error(`Домашняя работа id=${ids.homeworkId} не найдена в url=${groupUrl}`);
+    throw new Error(
+      `Домашняя работа id=${ids.homeworkId} не найдена в url=${groupUrl}`
+    );
   }
 
   return {
@@ -201,13 +218,15 @@ async function sendLocalCommand(command) {
     });
   } catch {
     throw new Error(
-      "Локальный сервер недоступен. Запустите его командой npm run local-server.",
+      "Локальный сервер недоступен. Запустите его командой npm run local-server."
     );
   }
 
   const result = await response.json().catch(() => ({}));
   if (!response.ok || result?.ok !== true) {
-    throw new Error(result?.error ?? `Локальный сервер вернул ошибку ${response.status}.`);
+    throw new Error(
+      result?.error ?? `Локальный сервер вернул ошибку ${response.status}.`
+    );
   }
   return result;
 }
@@ -244,7 +263,9 @@ async function downloadWebinar(ids) {
 
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
-      throw new Error("OTUS отклонил запрос. Войдите в аккаунт и попробуйте снова.");
+      throw new Error(
+        "OTUS отклонил запрос. Войдите в аккаунт и попробуйте снова."
+      );
     }
     throw new Error(`Не удалось получить данные занятия (${response.status}).`);
   }

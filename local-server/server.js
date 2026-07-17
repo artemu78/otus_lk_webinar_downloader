@@ -1,6 +1,13 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { lstat, mkdir, readFile, readdir, realpath, stat } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  stat,
+} from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { LOCAL_COMMANDS, LOCAL_SERVER } from "../constants.js";
@@ -10,7 +17,7 @@ export const DEFAULT_PORT = LOCAL_SERVER.PORT;
 const MAX_BODY_BYTES = 256 * 1024;
 const DEFAULT_ENV_PATH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../.env",
+  "../.env"
 );
 const REQUIRED_ENV_VARIABLES = [
   "DEFAULT_ALLOWED_ROOT",
@@ -26,25 +33,89 @@ const COURSE_DIRECTORY_NAMES = new Map([
   ["dev-ai-agents", "DEV-AI-Agents"],
 ]);
 const CYRILLIC_TO_LATIN = {
-  А: "A", Б: "B", В: "V", Г: "G", Д: "D", Е: "E", Ё: "E", Ж: "Zh", З: "Z",
-  И: "I", Й: "I", К: "K", Л: "L", М: "M", Н: "N", О: "O", П: "P", Р: "R",
-  С: "S", Т: "T", У: "U", Ф: "F", Х: "Kh", Ц: "Ts", Ч: "Ch", Ш: "Sh",
-  Щ: "Shch", Ъ: "", Ы: "Y", Ь: "", Э: "E", Ю: "Yu", Я: "Ya",
-  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh", з: "z",
-  и: "i", й: "i", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r",
-  с: "s", т: "t", у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh",
-  щ: "shch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya",
+  А: "A",
+  Б: "B",
+  В: "V",
+  Г: "G",
+  Д: "D",
+  Е: "E",
+  Ё: "E",
+  Ж: "Zh",
+  З: "Z",
+  И: "I",
+  Й: "I",
+  К: "K",
+  Л: "L",
+  М: "M",
+  Н: "N",
+  О: "O",
+  П: "P",
+  Р: "R",
+  С: "S",
+  Т: "T",
+  У: "U",
+  Ф: "F",
+  Х: "Kh",
+  Ц: "Ts",
+  Ч: "Ch",
+  Ш: "Sh",
+  Щ: "Shch",
+  Ъ: "",
+  Ы: "Y",
+  Ь: "",
+  Э: "E",
+  Ю: "Yu",
+  Я: "Ya",
+  а: "a",
+  б: "b",
+  в: "v",
+  г: "g",
+  д: "d",
+  е: "e",
+  ё: "e",
+  ж: "zh",
+  з: "z",
+  и: "i",
+  й: "i",
+  к: "k",
+  л: "l",
+  м: "m",
+  н: "n",
+  о: "o",
+  п: "p",
+  р: "r",
+  с: "s",
+  т: "t",
+  у: "u",
+  ф: "f",
+  х: "kh",
+  ц: "ts",
+  ч: "ch",
+  ш: "sh",
+  щ: "shch",
+  ъ: "",
+  ы: "y",
+  ь: "",
+  э: "e",
+  ю: "yu",
+  я: "ya",
 };
 
 export function transliterateFolderPart(value) {
   const transliterated = [...String(value).normalize("NFC")]
     .map((character) => CYRILLIC_TO_LATIN[character] ?? character)
     .join("");
-  const safe = transliterated.normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9_-]+/g, "_")
-    .replace(/^_+|_+$/g, "").replace(/_+/g, "_");
+  const safe = transliterated
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_");
   if (!safe || safe === "." || safe === "..") {
-    throw new CommandError(400, "surname cannot be converted to a safe folder name");
+    throw new CommandError(
+      400,
+      "surname cannot be converted to a safe folder name"
+    );
   }
   return safe;
 }
@@ -60,13 +131,16 @@ export function splitGroupCode(groupCode) {
 export function courseCodeToDirectory(courseCode) {
   const knownName = COURSE_DIRECTORY_NAMES.get(courseCode.toLowerCase());
   if (knownName) return knownName;
-  return courseCode.split("-").filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("_");
+  return courseCode
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("_");
 }
 
 export function buildHomeworkFolderPath(
   allowedRoot,
-  { groupCode, surname, homeworkNumber },
+  { groupCode, surname, homeworkNumber }
 ) {
   if (!Number.isInteger(homeworkNumber) || homeworkNumber < 1) {
     throw new CommandError(400, "homeworkNumber must be a positive integer");
@@ -78,7 +152,7 @@ export function buildHomeworkFolderPath(
     groupDate,
     "homework",
     transliterateFolderPart(surname),
-    `hw${homeworkNumber}`,
+    `hw${homeworkNumber}`
   );
 }
 
@@ -88,7 +162,7 @@ function logResolveFlow(stage, details = {}, options = {}) {
     `[student-materials] ${stage} ${JSON.stringify({
       flowId: options.flowId,
       ...details,
-    })}`,
+    })}`
   );
 }
 
@@ -99,7 +173,7 @@ export async function loadEnvironmentFile(envPath = DEFAULT_ENV_PATH) {
   } catch (error) {
     if (error?.code === "ENOENT") {
       throw new Error(
-        `.env file is required at ${envPath}. Copy .env.example to .env and fill in OPENROUTER_API_KEY.`,
+        `.env file is required at ${envPath}. Copy .env.example to .env and fill in OPENROUTER_API_KEY.`
       );
     }
     throw error;
@@ -122,11 +196,11 @@ export async function loadEnvironmentFile(envPath = DEFAULT_ENV_PATH) {
   }
 
   const missing = REQUIRED_ENV_VARIABLES.filter(
-    (name) => !process.env[name]?.trim(),
+    (name) => !process.env[name]?.trim()
   );
   if (missing.length > 0) {
     throw new Error(
-      `.env must define non-empty values for: ${missing.join(", ")}`,
+      `.env must define non-empty values for: ${missing.join(", ")}`
     );
   }
 }
@@ -134,7 +208,7 @@ export async function loadEnvironmentFile(envPath = DEFAULT_ENV_PATH) {
 export function isPathInsideRoot(candidatePath, allowedRoot) {
   const relative = path.relative(
     path.resolve(allowedRoot),
-    path.resolve(candidatePath),
+    path.resolve(candidatePath)
   );
   return (
     relative === "" ||
@@ -171,7 +245,7 @@ async function ensureFolder(candidatePath, allowedRoot) {
   if (!isPathInsideRoot(realAncestor, realRoot)) {
     throw new CommandError(
       403,
-      "folder would be created outside the allowed root",
+      "folder would be created outside the allowed root"
     );
   }
 
@@ -211,7 +285,7 @@ function openInFinder(folderPath) {
       if (code === 0) resolve();
       else
         reject(
-          new Error(errorOutput.trim() || `/usr/bin/open exited with ${code}`),
+          new Error(errorOutput.trim() || `/usr/bin/open exited with ${code}`)
         );
     });
   });
@@ -231,7 +305,10 @@ function openInWarp(folderPath) {
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) resolve();
-      else reject(new Error(errorOutput.trim() || `/usr/bin/open exited with ${code}`));
+      else
+        reject(
+          new Error(errorOutput.trim() || `/usr/bin/open exited with ${code}`)
+        );
     });
   });
 }
@@ -243,22 +320,32 @@ async function readLatestAnalysis(folderPath) {
     realAnalysisPath = await realpath(analysisPath);
   } catch (error) {
     if (error?.code === "ENOENT") {
-      throw new CommandError(404, `analyze_result folder not found in ${folderPath}`);
+      throw new CommandError(
+        404,
+        `analyze_result folder not found in ${folderPath}`
+      );
     }
     throw error;
   }
   if (!isPathInsideRoot(realAnalysisPath, folderPath)) {
-    throw new CommandError(403, "analyze_result resolves outside the student folder");
+    throw new CommandError(
+      403,
+      "analyze_result resolves outside the student folder"
+    );
   }
 
   const entries = await readdir(realAnalysisPath, { withFileTypes: true });
   const candidates = [];
   for (const entry of entries) {
-    if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== ".txt") continue;
+    if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== ".txt")
+      continue;
     const candidatePath = path.join(realAnalysisPath, entry.name);
     const realCandidatePath = await realpath(candidatePath);
     if (!isPathInsideRoot(realCandidatePath, realAnalysisPath)) {
-      throw new CommandError(403, "analysis file resolves outside analyze_result");
+      throw new CommandError(
+        403,
+        "analysis file resolves outside analyze_result"
+      );
     }
     candidates.push({
       name: entry.name,
@@ -271,7 +358,10 @@ async function readLatestAnalysis(folderPath) {
   if (!latest) {
     throw new CommandError(404, `TXT files not found in ${analysisPath}`);
   }
-  return { filename: latest.name, content: await readFile(latest.path, "utf8") };
+  return {
+    filename: latest.name,
+    content: await readFile(latest.path, "utf8"),
+  };
 }
 
 function runCommand(executable, args, options = {}) {
@@ -296,7 +386,7 @@ function runCommand(executable, args, options = {}) {
       if (code === 0) resolve(output);
       else
         reject(
-          new Error(errorOutput.trim() || `${executable} exited with ${code}`),
+          new Error(errorOutput.trim() || `${executable} exited with ${code}`)
         );
     });
   });
@@ -315,7 +405,7 @@ export function normalizeGitHubRepositoryUrl(rawUrl) {
   ) {
     throw new CommandError(
       422,
-      "student materials URL must use https://github.com",
+      "student materials URL must use https://github.com"
     );
   }
 
@@ -344,7 +434,7 @@ export async function resolveGitHubRepositoryUrl(rawUrl, options = {}) {
         repositoryUrl,
         isPullRequest: false,
       },
-      options,
+      options
     );
     return repositoryUrl;
   }
@@ -355,7 +445,7 @@ export async function resolveGitHubRepositoryUrl(rawUrl, options = {}) {
     {
       pullRequestUrl: parsed.toString(),
     },
-    options,
+    options
   );
   const output = await run("gh", [
     "pr",
@@ -375,18 +465,18 @@ export async function resolveGitHubRepositoryUrl(rawUrl, options = {}) {
   if (typeof owner !== "string" || typeof repository !== "string") {
     throw new CommandError(
       422,
-      "could not determine the pull request source repository",
+      "could not determine the pull request source repository"
     );
   }
   const sourceRepositoryUrl = normalizeGitHubRepositoryUrl(
-    `https://github.com/${owner}/${repository}`,
+    `https://github.com/${owner}/${repository}`
   );
   logResolveFlow(
     "pull-request.resolve.complete",
     {
       sourceRepositoryUrl,
     },
-    options,
+    options
   );
   return sourceRepositoryUrl;
 }
@@ -414,19 +504,20 @@ function parseOpenRouterUrl(content, options = {}) {
         contentType: content === null ? "null" : typeof content,
         contentLength: typeof content === "string" ? content.length : null,
         contentPreview: previewForLog(content),
-        parseError: error instanceof Error ? error.message : "unknown parse error",
+        parseError:
+          error instanceof Error ? error.message : "unknown parse error",
       },
-      options,
+      options
     );
     throw new CommandError(
       502,
-      "OpenRouter assistant content was not valid JSON",
+      "OpenRouter assistant content was not valid JSON"
     );
   }
   if (typeof parsed?.github_url !== "string") {
     throw new CommandError(
       422,
-      "GitHub link was not found in student messages",
+      "GitHub link was not found in student messages"
     );
   }
   return parsed.github_url;
@@ -441,13 +532,13 @@ export async function findGitHubUrlWithOpenRouter(messages, options = {}) {
   if (!apiKey) {
     throw new CommandError(
       500,
-      "OPENROUTER_API_KEY is not set for the local server",
+      "OPENROUTER_API_KEY is not set for the local server"
     );
   }
   if (!openRouterUrl || !openRouterModel) {
     throw new CommandError(
       500,
-      "OPENROUTER_URL and OPENROUTER_MODEL must be set in .env",
+      "OPENROUTER_URL and OPENROUTER_MODEL must be set in .env"
     );
   }
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -461,7 +552,7 @@ export async function findGitHubUrlWithOpenRouter(messages, options = {}) {
       model: openRouterModel,
       messageCount: messages.length,
     },
-    options,
+    options
   );
   const response = await fetchImpl(openRouterUrl, {
     method: "POST",
@@ -496,9 +587,10 @@ export async function findGitHubUrlWithOpenRouter(messages, options = {}) {
         contentType: response.headers?.get?.("content-type") ?? null,
         bodyLength: responseText.length,
         bodyPreview: previewForLog(responseText),
-        parseError: error instanceof Error ? error.message : "unknown parse error",
+        parseError:
+          error instanceof Error ? error.message : "unknown parse error",
       },
-      options,
+      options
     );
     throw new CommandError(502, "OpenRouter response body was not valid JSON");
   }
@@ -511,25 +603,24 @@ export async function findGitHubUrlWithOpenRouter(messages, options = {}) {
       ok: response.ok,
       contentType: response.headers?.get?.("content-type") ?? null,
       bodyLength: responseText.length,
-      responseKeys: payload && typeof payload === "object"
-        ? Object.keys(payload)
-        : [],
-      choiceCount: Array.isArray(payload?.choices) ? payload.choices.length : null,
+      responseKeys:
+        payload && typeof payload === "object" ? Object.keys(payload) : [],
+      choiceCount: Array.isArray(payload?.choices)
+        ? payload.choices.length
+        : null,
       finishReason: firstChoice?.finish_reason ?? null,
       nativeFinishReason: firstChoice?.native_finish_reason ?? null,
-      assistantContentType: assistantContent === null
-        ? "null"
-        : typeof assistantContent,
-      assistantContentLength: typeof assistantContent === "string"
-        ? assistantContent.length
-        : null,
+      assistantContentType:
+        assistantContent === null ? "null" : typeof assistantContent,
+      assistantContentLength:
+        typeof assistantContent === "string" ? assistantContent.length : null,
     },
-    options,
+    options
   );
   if (!response.ok) {
     throw new CommandError(
       502,
-      payload?.error?.message ?? `OpenRouter returned ${response.status}`,
+      payload?.error?.message ?? `OpenRouter returned ${response.status}`
     );
   }
   const githubUrl = parseOpenRouterUrl(assistantContent, options);
@@ -540,14 +631,14 @@ export async function findGitHubUrlWithOpenRouter(messages, options = {}) {
 export async function cloneRepositoryWithSsh(
   repositoryUrl,
   folderPath,
-  options = {},
+  options = {}
 ) {
   logResolveFlow("clone.folder.check", { folderPath }, options);
   const entries = await readdir(folderPath);
   if (entries.length !== 0) {
     throw new CommandError(
       409,
-      "student folder is not empty; clone into '.' was cancelled",
+      "student folder is not empty; clone into '.' was cancelled"
     );
   }
 
@@ -557,7 +648,7 @@ export async function cloneRepositoryWithSsh(
   if (!githubSshHost || !/^[A-Za-z0-9._-]+$/.test(githubSshHost)) {
     throw new CommandError(
       500,
-      "GITHUB_SSH_HOST must be a valid SSH host alias in .env",
+      "GITHUB_SSH_HOST must be a valid SSH host alias in .env"
     );
   }
   const cloneUrl = `git@${githubSshHost}:${repositoryName}.git`;
@@ -565,7 +656,7 @@ export async function cloneRepositoryWithSsh(
   logResolveFlow(
     "clone.repository.resolve",
     { repositoryUrl, repositoryName, normalizedUrl, githubSshHost, cloneUrl },
-    options,
+    options
   );
   logResolveFlow(
     "clone.command.start",
@@ -574,13 +665,13 @@ export async function cloneRepositoryWithSsh(
       arguments: ["clone", cloneUrl, "."],
       folderPath,
     },
-    options,
+    options
   );
   await run("git", ["clone", cloneUrl, "."], { cwd: folderPath });
   logResolveFlow(
     "clone.command.complete",
     { repositoryName, folderPath },
-    options,
+    options
   );
 }
 
@@ -589,9 +680,10 @@ export async function executeCommand(message, options = {}) {
   const openFolder = options.openFolder ?? openInFinder;
 
   const resolveFolder = () => {
-    const requestedPath = typeof message?.path === "string"
-      ? message.path
-      : buildHomeworkFolderPath(allowedRoot, message);
+    const requestedPath =
+      typeof message?.path === "string"
+        ? message.path
+        : buildHomeworkFolderPath(allowedRoot, message);
     return ensureFolder(requestedPath, allowedRoot);
   };
 
@@ -630,14 +722,15 @@ export async function executeCommand(message, options = {}) {
     logResolveFlow(
       "flow.start",
       {
-        requestedPath: typeof message?.path === "string"
-          ? message.path
-          : buildHomeworkFolderPath(allowedRoot, message),
+        requestedPath:
+          typeof message?.path === "string"
+            ? message.path
+            : buildHomeworkFolderPath(allowedRoot, message),
         messageCount: Array.isArray(message.messages)
           ? message.messages.length
           : null,
       },
-      flowOptions,
+      flowOptions
     );
     try {
       const folderPath = await resolveFolder();
@@ -649,7 +742,7 @@ export async function executeCommand(message, options = {}) {
       logResolveFlow(
         "repository.resolved",
         { rawUrl, repository },
-        flowOptions,
+        flowOptions
       );
       await cloneRepository(repository, folderPath, flowOptions);
       logResolveFlow("flow.complete", { repository, folderPath }, flowOptions);
@@ -665,7 +758,7 @@ export async function executeCommand(message, options = {}) {
         {
           error: error instanceof Error ? error.message : "unexpected error",
         },
-        flowOptions,
+        flowOptions
       );
       throw error;
     }
@@ -792,7 +885,7 @@ if (
 ) {
   startServer().catch((error) => {
     console.error(
-      error instanceof Error ? error.message : "Failed to start local server",
+      error instanceof Error ? error.message : "Failed to start local server"
     );
     process.exitCode = 1;
   });
