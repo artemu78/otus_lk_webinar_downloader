@@ -6,6 +6,9 @@ let messageListener;
 globalThis.chrome = {
   downloads: {
     onDeterminingFilename: { addListener() {} },
+    async download() {
+      return 1;
+    },
   },
   runtime: {
     id: "test-extension",
@@ -146,6 +149,125 @@ test("uses the cached path for Finder without calling OTUS", async () => {
     command: "open_folder",
     path: "/projects/otus/course/student/hw2",
   });
+});
+
+test("downloads a student ZIP with the Chrome session before local extraction", async () => {
+  const zipUrl = "https://otus.ru/private/materials.zip";
+  const expectedPath = "/projects/otus/course/student/hw2";
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    if (url.includes("/homework/msg/170836/47369/")) {
+      return jsonResponse({
+        data: { chat: [{ actor: { id: 170836 }, text: zipUrl }] },
+      });
+    }
+    if (url === "http://127.0.0.1:8765/commands") {
+      return jsonResponse({ ok: true, path: expectedPath, zipUrl });
+    }
+    if (url === zipUrl) {
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      };
+    }
+    if (url === "http://127.0.0.1:8765/zip-extraction") {
+      return jsonResponse({ ok: true, path: expectedPath });
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+
+  const response = await sendRuntimeMessage({
+    type: "DOWNLOAD_HOMEWORK_MATERIALS",
+    payload: {
+      studentId: "170836",
+      homeworkId: "47369",
+      cachedPath: expectedPath,
+    },
+  });
+
+  assert.equal(response.ok, true);
+  const download = calls.find((call) => call.url === zipUrl);
+  assert.equal(download.options.credentials, "include");
+  const extraction = calls.find(
+    (call) => call.url === "http://127.0.0.1:8765/zip-extraction"
+  );
+  assert.equal(extraction.options.headers["X-OTUS-Student-Path"], expectedPath);
+  assert.deepEqual(
+    new Uint8Array(extraction.options.body),
+    new Uint8Array([1, 2, 3])
+  );
+});
+
+test("downloads supported student chat attachments while resolving homework context", async () => {
+  const uploads = [];
+  globalThis.fetch = async (url, options = {}) => {
+    if (url.includes("/homework/msg/170836/47369/")) {
+      return jsonResponse({
+        data: {
+          chat: [
+            {
+              actor: { id: 170836, lname: "Иванов" },
+              media: [
+                {
+                  type: "file",
+                  media: {
+                    link: "https://cdn.otus.ru/media/private/work.docx?hash=1",
+                    original_file_name: "Работа 1.docx",
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      });
+    }
+    if (url.includes("/homework/put/")) {
+      return jsonResponse({ data: { homework: { group_id: 42 } } });
+    }
+    if (url.includes("/homework/journal/42/")) {
+      return jsonResponse({
+        data: {
+          group: { title: "AI-dev-tools-2026-07" },
+          homeworks: [{ id: 47369 }],
+        },
+      });
+    }
+    if (url === "http://127.0.0.1:8765/commands") {
+      return jsonResponse({ ok: true, path: "/projects/otus/course/student/hw1" });
+    }
+    if (url === "https://cdn.otus.ru/media/private/work.docx?hash=1") {
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      };
+    }
+    if (url === "http://127.0.0.1:8765/static-file") {
+      uploads.push(options);
+      return jsonResponse({
+        ok: true,
+        path: "/projects/otus/course/student/hw1",
+        skippedExisting: false,
+      });
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+
+  const response = await sendRuntimeMessage({
+    type: "DOWNLOAD_HOMEWORK_MATERIALS",
+    payload: { studentId: "170836", homeworkId: "47369" },
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.staticFileCount, 1);
+  assert.equal(uploads.length, 1);
+  assert.equal(uploads[0].headers["X-OTUS-Student-Path"], "/projects/otus/course/student/hw1");
+  assert.equal(
+    decodeURIComponent(uploads[0].headers["X-OTUS-File-Name"]),
+    "Работа 1.docx"
+  );
 });
 
 test("reads analysis through the cached homework path", async () => {

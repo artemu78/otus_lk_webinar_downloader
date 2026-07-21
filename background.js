@@ -4,6 +4,7 @@ import {
   sanitizeDownloadFilename,
   findStudentSurname,
   findStudentMessages,
+  findStudentStaticFiles,
 } from "./lib.js";
 import {
   EXTENSION_MESSAGES,
@@ -32,6 +33,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           ok: false,
           error:
             error instanceof Error ? error.message : "Непредвиденная ошибка.",
+          ...(error?.details ? { details: error.details } : {}),
         });
       });
 
@@ -136,14 +138,67 @@ async function openHomeworkFolder(ids) {
 
 async function downloadHomeworkMaterials(ids) {
   const messagePayload = await getHomeworkMessages(ids);
-  const folder = await getHomeworkFolder(ids, messagePayload);
+  const context =
+    typeof ids?.cachedPath === "string" && ids.cachedPath
+      ? {
+          staticFiles: findStudentStaticFiles(messagePayload, ids.studentId),
+        }
+      : await getHomeworkContext(ids, messagePayload);
+  const folder =
+    typeof ids?.cachedPath === "string" && ids.cachedPath
+      ? { path: ids.cachedPath }
+      : context.folder;
   const messages = findStudentMessages(messagePayload, ids.studentId);
-  const result = await sendLocalCommand({
-    command: LOCAL_COMMANDS.CLONE_STUDENT_MATERIALS,
-    ...folder,
-    messages,
-  });
-  return { path: result.path, repository: result.repository };
+  let result;
+  try {
+    result = await sendLocalCommand({
+      command: LOCAL_COMMANDS.CLONE_STUDENT_MATERIALS,
+      ...folder,
+      messages,
+    });
+  } catch (error) {
+    if (context.staticFiles.length > 0) {
+      const saved = await saveHomeworkStaticFiles(folder, context.staticFiles);
+      return {
+        path: saved.path,
+        staticFileCount: saved.savedCount,
+        skippedStaticFiles: saved.skippedCount,
+      };
+    }
+    throw error;
+  }
+  if (result.zipUrl) {
+    const archiveResponse = await fetch(result.zipUrl, {
+      credentials: "include",
+    });
+    if (!archiveResponse.ok) {
+      throw new Error(
+        `Не удалось скачать ZIP-архив (${archiveResponse.status}).`
+      );
+    }
+    const archive = await archiveResponse.arrayBuffer();
+    const extraction = await sendZipToLocalServer(result.path, archive);
+    const saved = await saveHomeworkStaticFiles(
+      { path: result.path },
+      context.staticFiles
+    );
+    return {
+      path: result.path,
+      skippedExisting: extraction.skippedExisting,
+      staticFileCount: saved.savedCount,
+      skippedStaticFiles: saved.skippedCount,
+    };
+  }
+  const saved = await saveHomeworkStaticFiles(
+    { path: result.path },
+    context.staticFiles
+  );
+  return {
+    path: result.path,
+    repository: result.repository,
+    staticFileCount: saved.savedCount,
+    skippedStaticFiles: saved.skippedCount,
+  };
 }
 
 async function runHomeworkPathCommand(ids, command) {
@@ -156,6 +211,7 @@ function sendHomeworkError(prefix, error, sendResponse) {
   sendResponse({
     ok: false,
     error: error instanceof Error ? error.message : "Непредвиденная ошибка.",
+    ...(error?.details ? { details: error.details } : {}),
   });
 }
 
@@ -177,6 +233,7 @@ async function getHomeworkContext(ids, existingMessagePayload) {
   const messagePayload =
     existingMessagePayload ?? (await getHomeworkMessages(ids));
   const surname = findStudentSurname(messagePayload, ids.studentId);
+  const staticFiles = findStudentStaticFiles(messagePayload, ids.studentId);
 
   const homeworkUrl = `https://otus.ru/api/teacher-lk/homework/put/${encodeURIComponent(ids.studentId)}/${encodeURIComponent(ids.homeworkId)}/?`;
   const homeworkData = await fetchOtusJson(
@@ -205,6 +262,37 @@ async function getHomeworkContext(ids, existingMessagePayload) {
   return {
     folder: { groupCode, surname, homeworkNumber: homeworkNumber + 1 },
     messagePayload,
+    staticFiles,
+  };
+}
+
+async function saveHomeworkStaticFiles(folder, files) {
+  const saved = [];
+  for (const { url, filename } of files) {
+    const download = await fetch(url, { credentials: "include" });
+    if (!download.ok) {
+      throw new Error(`Не удалось скачать файл ${filename} (${download.status}).`);
+    }
+    const response = await fetch(LOCAL_SERVER.STATIC_FILE_UPLOAD_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "X-OTUS-Student-Path": folder.path ?? "",
+        "X-OTUS-Student-Folder": encodeURIComponent(JSON.stringify(folder)),
+        "X-OTUS-File-Name": encodeURIComponent(sanitizeDownloadFilename(filename)),
+      },
+      body: await download.arrayBuffer(),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result?.ok !== true) {
+      throw new Error(result?.error ?? `Не удалось сохранить файл ${filename}.`);
+    }
+    saved.push(result);
+  }
+  return {
+    path: saved[0]?.path ?? folder.path,
+    savedCount: saved.filter((item) => !item.skippedExisting).length,
+    skippedCount: saved.filter((item) => item.skippedExisting).length,
   };
 }
 
@@ -222,6 +310,33 @@ async function sendLocalCommand(command) {
     );
   }
 
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result?.ok !== true) {
+    const error = new Error(
+      result?.error ?? `Локальный сервер вернул ошибку ${response.status}.`
+    );
+    error.details = result?.details;
+    throw error;
+  }
+  return result;
+}
+
+async function sendZipToLocalServer(folderPath, archive) {
+  let response;
+  try {
+    response = await fetch(LOCAL_SERVER.ZIP_EXTRACTION_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/zip",
+        "X-OTUS-Student-Path": folderPath,
+      },
+      body: archive,
+    });
+  } catch {
+    throw new Error(
+      "Локальный сервер недоступен. Запустите его командой npm run local-server."
+    );
+  }
   const result = await response.json().catch(() => ({}));
   if (!response.ok || result?.ok !== true) {
     throw new Error(

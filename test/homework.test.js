@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   findStudentSurname,
   findStudentMessages,
+  findStudentStaticFiles,
   parseHomeworkUrl,
 } from "../lib.js";
 
@@ -57,4 +58,51 @@ test("rejects a chat without student messages", () => {
     () => findStudentMessages({ data: { chat: [] } }, "170836"),
     /не найдены сообщения студента/
   );
+});
+
+test("finds only supported static file attachments submitted by the student", () => {
+  const payload = {
+    data: {
+      chat: [
+        {
+          actor: { id: 170836 },
+          media: [
+            {
+              type: "file",
+              media: {
+                link: "https://cdn.otus.ru/media/private/report.xlsx?hash=1",
+                original_file_name: "Отчёт.xlsx",
+              },
+            },
+            {
+              type: "file",
+              media: {
+                link: "https://cdn.otus.ru/media/private/archive.zip?hash=2",
+                original_file_name: "archive.zip",
+              },
+            },
+          ],
+        },
+        {
+          actor: { id: 1 },
+          media: [
+            {
+              type: "file",
+              media: {
+                link: "https://cdn.otus.ru/media/private/teacher.pdf",
+                original_file_name: "teacher.pdf",
+              },
+            },
+          ],
+        },
+      ],
+    },
+  };
+
+  assert.deepEqual(findStudentStaticFiles(payload, "170836"), [
+    {
+      url: "https://cdn.otus.ru/media/private/report.xlsx?hash=1",
+      filename: "Отчёт.xlsx",
+    },
+  ]);
 });

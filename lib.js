@@ -83,6 +83,56 @@ export function findStudentMessages(payload, studentId) {
   return messages;
 }
 
+const STATIC_HOMEWORK_FILE_EXTENSIONS = new Set([
+  "pdf",
+  "doc",
+  "docx",
+  "md",
+  "xls",
+  "xlsx",
+]);
+
+/**
+ * Returns downloadable file attachments submitted by the student. Text links
+ * are deliberately ignored: only OTUS chat media records are trusted as file
+ * attachments.
+ */
+export function findStudentStaticFiles(payload, studentId) {
+  const files = [];
+  const seenUrls = new Set();
+
+  for (const message of findStudentMessages(payload, studentId)) {
+    for (const attachment of message?.media || []) {
+      if (attachment?.type !== "file") continue;
+
+      const url = attachment?.media?.link;
+      const filename =
+        attachment?.media?.original_file_name ||
+        attachment?.attrs?.original_file_name ||
+        attachment?.media?.name_for_download ||
+        attachment?.attrs?.name;
+      if (typeof url !== "string" || typeof filename !== "string") continue;
+
+      let parsedUrl;
+      try {
+        parsedUrl = new URL(url);
+      } catch {
+        continue;
+      }
+      if (parsedUrl.protocol !== "https:") continue;
+
+      const extension = filename.split(".").pop()?.toLowerCase();
+      if (!STATIC_HOMEWORK_FILE_EXTENSIONS.has(extension)) continue;
+      if (seenUrls.has(parsedUrl.href)) continue;
+
+      seenUrls.add(parsedUrl.href);
+      files.push({ url: parsedUrl.href, filename });
+    }
+  }
+
+  return files;
+}
+
 export function findGroupData(payload, groupId) {
   const groups = payload?.data?.groups;
   if (!Array.isArray(groups)) {

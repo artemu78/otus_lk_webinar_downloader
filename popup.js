@@ -146,7 +146,7 @@ homeworkMaterialsButton.addEventListener("click", async () => {
 
   setActionsDisabled(true);
   homeworkMaterialsButton.textContent = "Скачиваем…";
-  showStatus("Ищем ссылку на GitHub в сообщениях студента…");
+  showStatus("Ищем ссылку на GitHub или ZIP в сообщениях студента…");
 
   try {
     const result = await chrome.runtime.sendMessage({
@@ -154,16 +154,32 @@ homeworkMaterialsButton.addEventListener("click", async () => {
       payload: getHomeworkPayload(),
     });
     if (!result?.ok) {
-      throw new Error(
+      const error = new Error(
         result?.error ?? "Не удалось скачать материалы студента."
       );
+      error.details = result?.details;
+      throw error;
     }
-    rememberHomeworkPath(result.path);
-    showStatus(`Материалы скачаны в ${result.path}`, false, true);
+    if (result.path) rememberHomeworkPath(result.path);
+    const skipped = Number(result.skippedExisting) || 0;
+    const staticFileCount = Number(result.staticFileCount) || 0;
+    showStatus(
+      !result.path && staticFileCount > 0
+        ? `Скачано файлов из чата: ${staticFileCount}. Они находятся в папке Downloads/OTUS homework materials.`
+        : skipped > 0
+        ? `Материалы скачаны в ${result.path}; существующие файлы не перезаписаны: ${skipped}.`
+        : staticFileCount > 0
+          ? `Материалы скачаны в ${result.path}; файлов из чата: ${staticFileCount}.`
+          : `Материалы скачаны в ${result.path}`,
+      false,
+      true
+    );
   } catch (error) {
     showStatus(
       error instanceof Error ? error.message : "Непредвиденная ошибка.",
-      true
+      true,
+      false,
+      error?.details
     );
   } finally {
     setActionsDisabled(false);
@@ -325,7 +341,22 @@ function setActionsDisabled(disabled) {
   homeworkFolderInput.disabled = disabled;
 }
 
-function showStatus(message, isError = false, isSuccess = false) {
-  statusElement.textContent = message;
+function showStatus(
+  message,
+  isError = false,
+  isSuccess = false,
+  details = null
+) {
+  statusElement.replaceChildren(document.createTextNode(message));
+  if (details && typeof details === "object") {
+    const disclosure = document.createElement("details");
+    disclosure.className = "status-details";
+    const summary = document.createElement("summary");
+    summary.textContent = "Показать детали";
+    const content = document.createElement("pre");
+    content.textContent = JSON.stringify(details, null, 2);
+    disclosure.append(summary, content);
+    statusElement.append(document.createElement("br"), disclosure);
+  }
   statusElement.className = `status${isError ? " error" : isSuccess ? " success" : ""}`;
 }

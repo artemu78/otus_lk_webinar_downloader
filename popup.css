@@ -134,3 +134,28 @@ button.icon-button svg {
 .status.success {
   color: #1b5e20;
 }
+.status-details {
+  margin-top: 6px;
+  color: #263238;
+}
+.status-details summary {
+  cursor: pointer;
+  color: #b71c1c;
+  font-weight: 650;
+}
+.status-details pre {
+  max-height: 160px;
+  overflow: auto;
+  margin: 6px 0 0;
+  padding: 8px;
+  border-radius: 5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #263238;
+  background: #fff1f1;
+  font:
+    11px/1.35 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}

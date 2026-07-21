@@ -8,6 +8,7 @@ import {
   cloneRepositoryWithSsh,
   courseCodeToDirectory,
   executeCommand,
+  findStudentMaterialWithOpenRouter,
   findGitHubUrlWithOpenRouter,
   isPathInsideRoot,
   loadEnvironmentFile,
@@ -227,7 +228,44 @@ test("asks the configured OpenRouter model for a JSON GitHub URL", async () => {
   assert.equal(JSON.parse(request.options.body).model, "deepseek/test-model");
 });
 
-test("logs malformed OpenRouter assistant content with useful diagnostics", async () => {
+test("recognizes a ZIP URL from OpenRouter and asks for both material types", async () => {
+  let request;
+  const material = await findStudentMaterialWithOpenRouter(
+    [{ text: "archive" }],
+    {
+      apiKey: "test-key",
+      openRouterUrl: "https://openrouter.example/api/chat",
+      openRouterModel: "test/model",
+      fetchImpl: async (_endpoint, options) => {
+        request = options;
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => "application/json" },
+          text: async () =>
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content:
+                      '{"github_url":null,"zip_url":"https://files.example/work.zip"}',
+                  },
+                },
+              ],
+            }),
+        };
+      },
+    }
+  );
+
+  assert.deepEqual(material, {
+    githubUrl: null,
+    zipUrl: "https://files.example/work.zip",
+  });
+  assert.match(JSON.parse(request.body).messages[0].content, /ZIP archive URL/);
+});
+
+test("returns safe diagnostics for malformed OpenRouter assistant content", async () => {
   const logs = [];
 
   await assert.rejects(
@@ -253,7 +291,17 @@ test("logs malformed OpenRouter assistant content with useful diagnostics", asyn
           }),
       }),
     }),
-    /assistant content was not valid JSON/
+    (error) => {
+      assert.match(error.message, /assistant content was not valid JSON/);
+      assert.deepEqual(error.details, {
+        code: "openrouter.assistant-content.invalid-json",
+        contentType: "string",
+        contentLength: 8,
+        contentPreview: "not json",
+        parseError: "Unexpected token 'o', \"not json\" is not valid JSON",
+      });
+      return true;
+    }
   );
 
   const output = logs.join("\n");
@@ -346,6 +394,28 @@ test("analyzes messages and clones student materials into the folder root", asyn
   assert.equal(result.repository, "https://github.com/student/fork");
   assert.equal(cloned.repository, "https://github.com/student/fork");
   assert.equal(cloned.candidate, await realpath(folder));
+});
+
+test("returns a ZIP material for the authenticated extension download", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "otus-command-zip-"));
+  const folder = buildHomeworkFolderPath(root, HOMEWORK_FOLDER);
+  const result = await executeCommand(
+    {
+      command: "clone_student_materials",
+      ...HOMEWORK_FOLDER,
+      messages: [{ text: "archive" }],
+    },
+    {
+      allowedRoot: root,
+      analyzeMessages: async () => ({
+        githubUrl: null,
+        zipUrl: "https://files.example/work.zip",
+      }),
+    }
+  );
+
+  assert.equal(result.zipUrl, "https://files.example/work.zip");
+  assert.equal(result.path, await realpath(folder));
 });
 
 test("clones through the configured SSH host alias", async () => {

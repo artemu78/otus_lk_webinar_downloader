@@ -30,9 +30,14 @@ Supported endpoints:
   cached absolute `path` — read the newest `.txt` file directly inside the
   folder's `analyze_result` directory.
 - `POST /commands` with `clone_student_materials`, the same folder parameters,
-  and the student's messages — use OpenRouter to find a GitHub link, resolve a PR's
-  source repository with `gh`, then run `git clone` with the SSH host alias from
-  `GITHUB_SSH_HOST`, including when the student's message contains a UI URL.
+  and the student's messages — use OpenRouter to find a GitHub link or ZIP archive.
+  GitHub PRs are resolved with `gh` and cloned through the SSH host alias from
+  `GITHUB_SSH_HOST`; ZIP archives are downloaded by the extension with the
+  authenticated Chrome session, then unpacked without overwriting existing files
+  after path and symbolic-link checks.
+- `POST /static-file` — accepts a supported static attachment only from the
+  extension, resolves the same student folder, and stores it without overwriting
+  an existing file.
 
 Environment variables:
 
