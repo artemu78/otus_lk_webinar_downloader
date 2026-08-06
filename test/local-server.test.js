@@ -4,17 +4,21 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  analyzeGroupWithOpenRouter,
   buildHomeworkFolderPath,
+  cancelGroupAnalysisJob,
   cloneRepositoryWithSsh,
   courseCodeToDirectory,
   executeCommand,
   findStudentMaterialWithOpenRouter,
   findGitHubUrlWithOpenRouter,
+  getAnalysisJob,
   isPathInsideRoot,
   loadEnvironmentFile,
   normalizeGitHubRepositoryUrl,
   resolveGitHubRepositoryUrl,
   splitGroupCode,
+  startGroupAnalysisJob,
   transliterateFolderPart,
 } from "../local-server/server.js";
 
@@ -468,4 +472,330 @@ test("logs the student materials resolve flow without logging message contents",
   assert.match(logs.join("\n"), /repository.resolved/);
   assert.match(logs.join("\n"), /flow.complete/);
   assert.doesNotMatch(logs.join("\n"), /secret student message/);
+});
+
+test("calls OpenRouter with the group analytics system prompt and returns structured analysis", async () => {
+  const mockAnalysis = {
+    summary: "Группа состоит преимущественно из backend-разработчиков.",
+    total: 2,
+    segments: [
+      {
+        category: "Developer",
+        count: 1,
+        subsegments: [{ subcategory: "Backend", seniority: "Middle", count: 1 }],
+      },
+      {
+        category: "QA/PM/BA",
+        count: 1,
+        subsegments: [{ subcategory: "QA Engineer", seniority: "Junior", count: 1 }],
+      },
+    ],
+  };
+
+  let capturedBody;
+  const result = await analyzeGroupWithOpenRouter(
+    {
+      groupCode: "AI-dev-tools-2026-07",
+      studentCount: 2,
+      prompt: "Name: Иван Иванов\nRole: Backend Developer",
+    },
+    {
+      apiKey: "test-key",
+      openRouterUrl: "https://openrouter.example/api/chat",
+      openRouterModel: "test/model",
+      fetchImpl: async (url, options) => {
+        capturedBody = JSON.parse(options.body);
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => "application/json" },
+          text: async () =>
+            JSON.stringify({
+              choices: [{ message: { content: JSON.stringify(mockAnalysis) } }],
+            }),
+        };
+      },
+    }
+  );
+
+  assert.deepEqual(result.analysis, mockAnalysis);
+  // System prompt should mention target audience categorization
+  assert.match(capturedBody.messages[0].content, /Non-IT/);
+  assert.match(capturedBody.messages[0].content, /seniority/i);
+  // User message should include group code and student count
+  assert.match(capturedBody.messages[1].content, /AI-dev-tools-2026-07/);
+  assert.match(capturedBody.messages[1].content, /2 students/);
+  // API key must not appear in logs
+  assert.doesNotMatch(JSON.stringify(capturedBody), /test-key/);
+});
+
+test("rejects when OpenRouter returns invalid JSON for group analysis", async () => {
+  await assert.rejects(
+    analyzeGroupWithOpenRouter(
+      { groupCode: "test", studentCount: 1, prompt: "Name: Test" },
+      {
+        apiKey: "test-key",
+        openRouterUrl: "https://openrouter.example/api/chat",
+        openRouterModel: "test/model",
+        fetchImpl: async () => ({
+          ok: true,
+          status: 200,
+          headers: { get: () => "application/json" },
+          text: async () =>
+            JSON.stringify({
+              choices: [{ message: { content: "not valid json" } }],
+            }),
+        }),
+      }
+    ),
+    /analytics content was not valid JSON/
+  );
+});
+
+test("analyze_group command invokes analyzeGroupWithOpenRouter and returns analysis", async () => {
+  const mockAnalysis = {
+    summary: "Mixed group.",
+    total: 1,
+    segments: [
+      {
+        category: "Developer",
+        count: 1,
+        subsegments: [{ subcategory: "Backend", seniority: "Senior", count: 1 }],
+      },
+    ],
+  };
+
+  const result = await executeCommand(
+    {
+      command: "analyze_group",
+      groupCode: "AI-dev-tools-2026-07",
+      studentCount: 1,
+      prompt: "Name: Иван\nRole: Backend Developer",
+    },
+    {
+      analyzeGroup: async () => ({ analysis: mockAnalysis }),
+    }
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.command, "analyze_group");
+  assert.deepEqual(result.analysis, mockAnalysis);
+});
+
+test("starts a background group analysis job and returns its status via getAnalysisJob", async () => {
+  const jobId = `test-job-${Date.now()}`;
+  const groups = [
+    { id: 1, title: "Group-A", studentCount: 2, prompt: "Name: Alice\nRole: Backend" },
+    { id: 2, title: "Group-B", studentCount: 1, prompt: "Name: Bob\nRole: QA" },
+  ];
+
+  const analysisResults = new Map([
+    ["Group-A", { summary: "Mostly backend.", total: 2, segments: [{ category: "Developer", count: 2, subsegments: [{ subcategory: "Backend", seniority: "Middle", count: 2 }] }] }],
+    ["Group-B", { summary: "One QA.", total: 1, segments: [{ category: "QA/PM/BA", count: 1, subsegments: [{ subcategory: "QA Engineer", seniority: "Junior", count: 1 }] }] }],
+  ]);
+
+  const result = startGroupAnalysisJob(
+    { jobId, groups },
+    {
+      analyzeGroup: async (msg) => ({
+        analysis: analysisResults.get(msg.groupCode),
+      }),
+    }
+  );
+
+  assert.equal(result.jobId, jobId);
+  assert.equal(result.total, 2);
+
+  const job = getAnalysisJob(jobId);
+  assert.ok(job);
+  assert.equal(job.status, "running");
+  assert.equal(job.total, 2);
+
+  // Wait for the async job to complete
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const doneJob = getAnalysisJob(jobId);
+  assert.equal(doneJob.status, "done");
+  assert.equal(doneJob.current, 2);
+  assert.equal(doneJob.results.length, 2);
+  assert.equal(doneJob.results[0].group.title, "Group-A");
+  assert.deepEqual(doneJob.results[0].analysis, analysisResults.get("Group-A"));
+});
+
+test("records per-group errors without aborting the job", async () => {
+  const jobId = `test-job-err-${Date.now()}`;
+  const groups = [
+    { id: 1, title: "Group-OK", studentCount: 1, prompt: "Name: Alice" },
+    { id: 2, title: "Group-Fail", studentCount: 1, prompt: "Name: Bob" },
+  ];
+
+  startGroupAnalysisJob(
+    { jobId, groups },
+    {
+      analyzeGroup: async (msg) => {
+        if (msg.groupCode === "Group-Fail")
+          throw new Error("OpenRouter timeout");
+        return { analysis: { total: 1, segments: [] } };
+      },
+    }
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const job = getAnalysisJob(jobId);
+  assert.equal(job.status, "done");
+  assert.equal(job.results.length, 2);
+  assert.ok(job.results[1].error);
+  assert.match(job.results[1].error, /OpenRouter timeout/);
+});
+
+test("start_group_analysis command fires and returns the jobId immediately", async () => {
+  const jobId = `test-cmd-job-${Date.now()}`;
+  const result = await executeCommand(
+    {
+      command: "start_group_analysis",
+      jobId,
+      groups: [{ id: 3, title: "Cmd-Group", studentCount: 1, prompt: "Name: Carol" }],
+    },
+    {
+      startJob: (msg) => ({ jobId: msg.jobId, total: msg.groups.length }),
+    }
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.command, "start_group_analysis");
+  assert.equal(result.jobId, jobId);
+  assert.equal(result.total, 1);
+});
+
+test("wraps a network failure in a readable error message", async () => {
+  await assert.rejects(
+    analyzeGroupWithOpenRouter(
+      { groupCode: "Test", studentCount: 1, prompt: "Name: Alice" },
+      {
+        apiKey: "test-key",
+        openRouterUrl: "https://openrouter.example/api/chat",
+        openRouterModel: "test/model",
+        fetchImpl: async () => {
+          throw new Error("ECONNREFUSED");
+        },
+      }
+    ),
+    /OpenRouter недоступен.*ECONNREFUSED/
+  );
+});
+
+test("surfaces OpenRouter payment or rate-limit errors from the response body", async () => {
+  await assert.rejects(
+    analyzeGroupWithOpenRouter(
+      { groupCode: "Test", studentCount: 1, prompt: "Name: Alice" },
+      {
+        apiKey: "test-key",
+        openRouterUrl: "https://openrouter.example/api/chat",
+        openRouterModel: "test/model",
+        fetchImpl: async () => ({
+          ok: false,
+          status: 402,
+          headers: { get: () => "application/json" },
+          text: async () =>
+            JSON.stringify({ error: { message: "Insufficient credits" } }),
+        }),
+      }
+    ),
+    /Insufficient credits/
+  );
+});
+
+test("records network errors per-group without aborting the job", async () => {
+  const jobId = `test-job-net-${Date.now()}`;
+  startGroupAnalysisJob(
+    {
+      jobId,
+      groups: [
+        { id: 1, title: "Group-OK", studentCount: 1, prompt: "Name: Alice" },
+        { id: 2, title: "Group-Net-Fail", studentCount: 1, prompt: "Name: Bob" },
+      ],
+    },
+    {
+      analyzeGroup: async (msg) => {
+        if (msg.groupCode === "Group-Net-Fail")
+          throw new Error("OpenRouter недоступен: ECONNREFUSED");
+        return { analysis: { total: 1, segments: [] } };
+      },
+    }
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const job = getAnalysisJob(jobId);
+  assert.equal(job.status, "done");
+  assert.equal(job.results.length, 2);
+  assert.ok(!job.results[0].error, "first group should succeed");
+  assert.match(job.results[1].error, /ECONNREFUSED/);
+});
+
+test("cancels a running job and sets finishedAt", async () => {
+  const jobId = `test-cancel-${Date.now()}`;
+  // Use a never-resolving group to keep the job running
+  let resolveBlock;
+  const blockingPromise = new Promise((resolve) => { resolveBlock = resolve; });
+
+  startGroupAnalysisJob(
+    { jobId, groups: [{ id: 1, title: "Group-Block", studentCount: 1, prompt: "x" }] },
+    { analyzeGroup: async () => { await blockingPromise; return { analysis: {} }; } }
+  );
+
+  const before = Date.now();
+  const result = cancelGroupAnalysisJob(jobId);
+  const after = Date.now();
+
+  assert.equal(result.jobId, jobId);
+  assert.equal(result.status, "cancelled");
+
+  const job = getAnalysisJob(jobId);
+  assert.equal(job.status, "cancelled");
+  assert.ok(job.finishedAt >= before && job.finishedAt <= after + 5);
+
+  // Unblock the hanging analyzeGroup so the test process can exit
+  resolveBlock();
+});
+
+test("rejects cancelling a job that is not running", async () => {
+  const jobId = `test-cancel-done-${Date.now()}`;
+  startGroupAnalysisJob(
+    { jobId, groups: [{ id: 1, title: "G", studentCount: 1, prompt: "x" }] },
+    { analyzeGroup: async () => ({ analysis: { total: 1, segments: [] } }) }
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(getAnalysisJob(jobId).status, "done");
+
+  assert.throws(
+    () => cancelGroupAnalysisJob(jobId),
+    /not running/
+  );
+});
+
+test("sets finishedAt when job completes normally", async () => {
+  const jobId = `test-finished-${Date.now()}`;
+  const before = Date.now();
+  startGroupAnalysisJob(
+    { jobId, groups: [{ id: 1, title: "G", studentCount: 1, prompt: "x" }] },
+    { analyzeGroup: async () => ({ analysis: { total: 1, segments: [] } }) }
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const job = getAnalysisJob(jobId);
+  assert.equal(job.status, "done");
+  assert.ok(typeof job.finishedAt === "number" && job.finishedAt >= before);
+});
+
+test("cancel_group_analysis command delegates to cancelJob option", async () => {
+  let cancelledId;
+  const result = await executeCommand(
+    { command: "cancel_group_analysis", jobId: "job-xyz" },
+    { cancelJob: (id) => { cancelledId = id; return { jobId: id, status: "cancelled" }; } }
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.command, "cancel_group_analysis");
+  assert.equal(result.status, "cancelled");
+  assert.equal(cancelledId, "job-xyz");
 });

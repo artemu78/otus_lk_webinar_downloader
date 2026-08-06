@@ -82,6 +82,57 @@
         >
           Открыть Warp
         </button>
+        <button
+          id="analyze-group"
+          class="secondary"
+          type="button"
+          hidden
+          disabled
+        >
+          Анализ аудитории группы
+        </button>
+      </div>
+      <div id="group-picker" class="group-picker" hidden>
+        <input
+          id="group-picker-filter"
+          class="group-picker-filter"
+          type="text"
+          placeholder="Фильтр по названию группы…"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <div id="group-picker-list" class="group-picker-list" role="list">
+          <div class="group-picker-empty">Загрузка групп…</div>
+        </div>
+        <div class="group-picker-actions">
+          <button id="group-picker-run" type="button" disabled>
+            Анализировать
+          </button>
+        </div>
+      </div>
+      <div id="analysis-job-panel" class="analysis-job-panel" hidden>
+        <div class="analysis-job-header">
+          <span id="analysis-job-label" class="analysis-job-label"></span>
+          <span id="analysis-job-time" class="analysis-job-time"></span>
+        </div>
+        <p id="analysis-job-status" class="analysis-job-status"></p>
+        <div class="analysis-job-actions">
+          <button id="analysis-job-kill" class="secondary danger" type="button" disabled>
+            Остановить
+          </button>
+          <button id="analysis-job-new" class="secondary" type="button" disabled>
+            Новый анализ
+          </button>
+        </div>
+        <div class="analysis-job-results" id="analysis-job-results" hidden>
+          <button id="analysis-job-copy" class="secondary" type="button">
+            Скопировать результаты
+          </button>
+          <button id="analysis-job-sheet" type="button">
+            Открыть Google Таблицу
+          </button>
+        </div>
+        <ul id="analysis-job-errors" class="analysis-job-errors" hidden aria-label="Группы с ошибками"></ul>
       </div>
       <p id="status" class="status" role="status" aria-live="polite"></p>
     </main>

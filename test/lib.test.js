@@ -8,7 +8,12 @@ import {
   generateAttendanceTableTSV,
   generateSummaryTableTSV,
   parseLessonUrl,
+  parseScoringUrl,
   sanitizeDownloadFilename,
+  fetchGroupsList,
+  fetchGroupStudents,
+  buildGroupAnalyticsPrompt,
+  buildGroupAnalyticsTSV,
 } from "../lib.js";
 
 test("decodes URL-encoded download filenames", () => {
@@ -175,4 +180,210 @@ test("reports numbered progress stages while collecting data", async () => {
     "2/3 Получаем данные занятий… (1/1). Не закрывайте окно",
     "3/3 Получаем данные посещаемости… (1/1). Не закрывайте окно",
   ]);
+});
+
+test("recognizes the scoring page URL", () => {
+  assert.deepEqual(
+    parseScoringUrl("https://otus.ru/teacher-lk/scoring"),
+    { isScoring: true }
+  );
+  assert.deepEqual(
+    parseScoringUrl("https://otus.ru/teacher-lk/scoring/"),
+    { isScoring: true }
+  );
+  assert.throws(
+    () => parseScoringUrl("https://otus.ru/teacher-lk/programs/3616/127815/"),
+    /скоринга/
+  );
+});
+
+test("fetches and parses the groups list", async () => {
+  const mockFetch = async (url) => {
+    assert.match(url, /teacher\.lk\.group\.list/);
+    return {
+      ok: true,
+      json: async () => ({
+        status: "ok",
+        data: [
+          { id: 4115, title: "AI-dev-tools-2026-07", is_finished: false },
+          { id: 4097, title: "AI-Agents-2026-02", is_finished: true },
+        ],
+      }),
+    };
+  };
+  const groups = await fetchGroupsList(mockFetch);
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].id, 4115);
+  assert.equal(groups[0].title, "AI-dev-tools-2026-07");
+});
+
+test("excludes groups whose start_date is in the future", async () => {
+  const past = new Date(Date.now() - 86_400_000).toISOString(); // yesterday
+  const future = new Date(Date.now() + 86_400_000).toISOString(); // tomorrow
+  const mockFetch = async () => ({
+    ok: true,
+    json: async () => ({
+      status: "ok",
+      data: [
+        { id: 1, title: "Past Group", start_date: past },
+        { id: 2, title: "Future Group", start_date: future },
+        { id: 3, title: "No Date Group" },
+      ],
+    }),
+  });
+  const groups = await fetchGroupsList(mockFetch);
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].id, 1);
+  assert.equal(groups[1].id, 3);
+  assert.ok(groups.every((g) => g.id !== 2), "future group must be excluded");
+});
+
+test("fetches student rows for a group", async () => {
+  const mockFetch = async (url) => {
+    assert.match(url, /reports\.scoring\.group\.get/);
+    assert.match(url, /group_id=4115/);
+    assert.match(url, /sql_report_id=757/);
+    return {
+      ok: true,
+      json: async () => ({
+        status: "ok",
+        data: {
+          rows: [
+            ["Иван Иванов", "Backend Developer", 1990, "5 years Java", "Languages: Java 5 year(s);", "", 1],
+            ["Мария Сидорова", "QA Engineer", null, null, null, "", 2],
+          ],
+          head: ["Student", "TITLE", "BIRTHYEAR", "about_self", "Technologies", "github", "user_id"],
+        },
+      }),
+    };
+  };
+  const rows = await fetchGroupStudents(4115, mockFetch);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0][0], "Иван Иванов");
+  assert.equal(rows[1][1], "QA Engineer");
+});
+
+test("builds a prompt string from student rows", () => {
+  const rows = [
+    ["Иван Иванов", "Backend Developer", 1990, "5 years Java", "Languages: Java 5 year(s);", "", 1],
+    ["Мария Сидорова", "QA Engineer", null, null, null, "", 2],
+  ];
+  const prompt = buildGroupAnalyticsPrompt(rows);
+  assert.match(prompt, /Name: Иван Иванов/);
+  assert.match(prompt, /Role: Backend Developer/);
+  assert.match(prompt, /Birth Year: 1990/);
+  assert.match(prompt, /About: 5 years Java/);
+  assert.match(prompt, /Technologies: Languages: Java 5 year\(s\);/);
+  assert.match(prompt, /Name: Мария Сидорова/);
+  assert.match(prompt, /Role: QA Engineer/);
+  // null fields should be omitted
+  assert.doesNotMatch(prompt, /Birth Year: null/);
+  assert.doesNotMatch(prompt, /About: null/);
+});
+
+test("builds a TSV for multiple groups ready for Google Sheets", () => {
+  const results = [
+    {
+      group: { id: 4115, title: "AI-dev-tools-2026-07" },
+      analysis: {
+        total: 5,
+        summary: "Mostly backend devs.",
+        segments: [
+          {
+            category: "Developer",
+            count: 4,
+            subsegments: [
+              { subcategory: "Backend", seniority: "Middle", count: 2 },
+              { subcategory: "Backend", seniority: "Senior", count: 1 },
+              { subcategory: "Frontend", seniority: "Junior", count: 1 },
+            ],
+          },
+          {
+            category: "QA/PM/BA",
+            count: 1,
+            subsegments: [
+              { subcategory: "QA Engineer", seniority: "Middle", count: 1 },
+            ],
+          },
+        ],
+      },
+    },
+    {
+      group: { id: 4144, title: "AI-Agents-2026-06" },
+      analysis: {
+        total: 1,
+        summary: "One senior architect.",
+        segments: [
+          {
+            category: "Lead",
+            count: 1,
+            subsegments: [
+              { subcategory: "Solution Architect", seniority: "Senior", count: 1 },
+            ],
+          },
+        ],
+      },
+    },
+  ];
+
+  const tsv = buildGroupAnalyticsTSV(results);
+  const lines = tsv.split("\n");
+
+  // line 0: first group name (single cell, no tabs)
+  assert.match(lines[0], /AI-dev-tools-2026-07/);
+  assert.ok(!lines[0].includes("\t"), "group name row must not have tabs");
+
+  // line 1: column header for the group's table
+  assert.equal(lines[1], "Категория\tКоличество\tДетализация");
+
+  // line 2: Developer row — category, total count, multi-line detail with subsegments
+  assert.match(lines[2], /Developer/);
+  assert.match(lines[2], /\t4\t/);
+  assert.match(lines[2], /Backend Middle 2/);
+  assert.match(lines[2], /Backend Senior 1/);
+  assert.match(lines[2], /Frontend Junior 1/);
+
+  // line 3: QA/PM/BA row
+  assert.match(lines[3], /QA\/PM\/BA/);
+  assert.match(lines[3], /\t1\t/);
+  assert.match(lines[3], /QA Engineer Middle 1/);
+
+  // line 4: empty separator
+  assert.equal(lines[4], "");
+
+  // line 5: second group name
+  assert.match(lines[5], /AI-Agents-2026-06/);
+
+  // line 6: column header again
+  assert.equal(lines[6], "Категория\tКоличество\tДетализация");
+
+  // line 7: Lead row with subcategory+seniority detail
+  assert.match(lines[7], /Lead/);
+  assert.match(lines[7], /\t1\t/);
+  assert.match(lines[7], /Solution Architect Senior 1/);
+
+  // line 8: trailing empty separator
+  assert.equal(lines[8], "");
+
+  assert.equal(lines.length, 9);
+});
+
+test("falls back gracefully when AI returns no subsegments", () => {
+  const results = [
+    {
+      group: { id: 1, title: "Test Group" },
+      analysis: {
+        total: 3,
+        segments: [
+          { category: "Developer", count: 3 }, // no subsegments field
+        ],
+      },
+    },
+  ];
+  const tsv = buildGroupAnalyticsTSV(results);
+  const lines = tsv.split("\n");
+  assert.match(lines[2], /Developer/);
+  assert.match(lines[2], /\t3\t/);
+  // fallback detail: category + count
+  assert.match(lines[2], /Developer 3/);
 });

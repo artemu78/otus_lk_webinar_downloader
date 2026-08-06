@@ -24,6 +24,51 @@ chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === EXTENSION_MESSAGES.ANALYZE_GROUP) {
+    analyzeGroup(message.payload)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => {
+        console.error("Group analytics failed", error);
+        sendResponse({
+          ok: false,
+          error:
+            error instanceof Error ? error.message : "Непредвиденная ошибка.",
+        });
+      });
+
+    return true;
+  }
+
+  if (message?.type === EXTENSION_MESSAGES.START_GROUP_ANALYSIS) {
+    startGroupAnalysis(message.payload)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => {
+        console.error("Start group analysis failed", error);
+        sendResponse({
+          ok: false,
+          error:
+            error instanceof Error ? error.message : "Непредвиденная ошибка.",
+        });
+      });
+
+    return true;
+  }
+
+  if (message?.type === EXTENSION_MESSAGES.CANCEL_GROUP_ANALYSIS) {
+    cancelGroupAnalysis(message.payload)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => {
+        console.error("Cancel group analysis failed", error);
+        sendResponse({
+          ok: false,
+          error:
+            error instanceof Error ? error.message : "Непредвиденная ошибка.",
+        });
+      });
+
+    return true;
+  }
+
   if (message?.type === EXTENSION_MESSAGES.DOWNLOAD_HOMEWORK_MATERIALS) {
     downloadHomeworkMaterials(message.payload)
       .then((result) => sendResponse({ ok: true, ...result }))
@@ -115,6 +160,34 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   return true;
 });
+
+async function analyzeGroup({ groupCode, groupId, prompt, studentCount }) {
+  const result = await sendLocalCommand({
+    command: LOCAL_COMMANDS.ANALYZE_GROUP,
+    groupCode,
+    groupId,
+    studentCount,
+    prompt,
+  });
+  return result;
+}
+
+async function startGroupAnalysis({ jobId, groups }) {
+  const result = await sendLocalCommand({
+    command: LOCAL_COMMANDS.START_GROUP_ANALYSIS,
+    jobId,
+    groups,
+  });
+  return result;
+}
+
+async function cancelGroupAnalysis({ jobId }) {
+  const result = await sendLocalCommand({
+    command: LOCAL_COMMANDS.CANCEL_GROUP_ANALYSIS,
+    jobId,
+  });
+  return result;
+}
 
 async function fetchOtusJson(url, description) {
   const response = await fetch(url, {

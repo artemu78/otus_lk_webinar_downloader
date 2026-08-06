@@ -14,7 +14,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { LOCAL_COMMANDS, LOCAL_SERVER } from "../constants.js";
+import { LOCAL_COMMANDS, LOCAL_SERVER, EDUCATIONAL_ANALYTICS_SYSTEM_PROMPT, REQUIRED_ENV_VARIABLES, GROUP_RE, COURSE_DIRECTORY_NAMES, CYRILLIC_TO_LATIN } from "../constants.js";
 
 export const DEFAULT_HOST = LOCAL_SERVER.HOST;
 export const DEFAULT_PORT = LOCAL_SERVER.PORT;
@@ -32,87 +32,6 @@ const DEFAULT_ENV_PATH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../.env"
 );
-const REQUIRED_ENV_VARIABLES = [
-  "DEFAULT_ALLOWED_ROOT",
-  "OPENROUTER_API_KEY",
-  "OPENROUTER_URL",
-  "OPENROUTER_MODEL",
-  "GITHUB_SSH_HOST",
-];
-const GROUP_RE = /^(.*)-(\d{4}-\d{2})$/;
-const COURSE_DIRECTORY_NAMES = new Map([
-  ["ai-dev-tools", "AI_Dev_Tools"],
-  ["ai-agents", "AI_Agents"],
-  ["dev-ai-agents", "DEV-AI-Agents"],
-]);
-const CYRILLIC_TO_LATIN = {
-  А: "A",
-  Б: "B",
-  В: "V",
-  Г: "G",
-  Д: "D",
-  Е: "E",
-  Ё: "E",
-  Ж: "Zh",
-  З: "Z",
-  И: "I",
-  Й: "I",
-  К: "K",
-  Л: "L",
-  М: "M",
-  Н: "N",
-  О: "O",
-  П: "P",
-  Р: "R",
-  С: "S",
-  Т: "T",
-  У: "U",
-  Ф: "F",
-  Х: "Kh",
-  Ц: "Ts",
-  Ч: "Ch",
-  Ш: "Sh",
-  Щ: "Shch",
-  Ъ: "",
-  Ы: "Y",
-  Ь: "",
-  Э: "E",
-  Ю: "Yu",
-  Я: "Ya",
-  а: "a",
-  б: "b",
-  в: "v",
-  г: "g",
-  д: "d",
-  е: "e",
-  ё: "e",
-  ж: "zh",
-  з: "z",
-  и: "i",
-  й: "i",
-  к: "k",
-  л: "l",
-  м: "m",
-  н: "n",
-  о: "o",
-  п: "p",
-  р: "r",
-  с: "s",
-  т: "t",
-  у: "u",
-  ф: "f",
-  х: "kh",
-  ц: "ts",
-  ч: "ch",
-  ш: "sh",
-  щ: "shch",
-  ъ: "",
-  ы: "y",
-  ь: "",
-  э: "e",
-  ю: "yu",
-  я: "ya",
-};
 
 export function transliterateFolderPart(value) {
   const transliterated = [...String(value).normalize("NFC")]
@@ -776,6 +695,263 @@ export async function cloneRepositoryWithSsh(
   );
 }
 
+// --- In-memory job store for background group analysis ---
+
+const analysisJobs = new Map();
+
+export function getAnalysisJob(jobId) {
+  return analysisJobs.get(jobId) ?? null;
+}
+
+export function cancelGroupAnalysisJob(jobId) {
+  const job = analysisJobs.get(jobId);
+  if (!job) throw new CommandError(404, "job not found");
+  if (job.status !== "running") {
+    throw new CommandError(409, `job is not running (status: ${job.status})`);
+  }
+  job.status = "cancelled";
+  job.finishedAt = Date.now();
+  return { jobId, status: job.status };
+}
+
+export function startGroupAnalysisJob(message, options = {}) {
+  const jobId = message.jobId;
+  if (!jobId || typeof jobId !== "string") {
+    throw new CommandError(400, "jobId must be a non-empty string");
+  }
+  if (!Array.isArray(message.groups) || message.groups.length === 0) {
+    throw new CommandError(400, "groups must be a non-empty array");
+  }
+
+  const job = {
+    jobId,
+    status: "running",
+    total: message.groups.length,
+    current: 0,
+    results: [],
+    startedAt: Date.now(),
+    finishedAt: null,
+    error: null,
+  };
+  analysisJobs.set(jobId, job);
+
+  // Fire-and-forget: run the loop without blocking the HTTP response
+  runGroupAnalysisJob(job, message.groups, options).catch((error) => {
+    job.status = "failed";
+    job.finishedAt = Date.now();
+    job.error =
+      error instanceof Error ? error.message : "Unexpected error during job";
+  });
+
+  return { jobId, total: job.total };
+}
+
+async function runGroupAnalysisJob(job, groups, options) {
+  const analyzeOne = options.analyzeGroup ?? analyzeGroupWithOpenRouter;
+  for (const group of groups) {
+    if (job.status === "cancelled") break;
+    try {
+      const { analysis } = await analyzeOne(
+        {
+          groupCode: group.title,
+          studentCount: group.studentCount,
+          prompt: group.prompt,
+        },
+        options
+      );
+      job.results.push({ group: { id: group.id, title: group.title }, analysis });
+    } catch (error) {
+      job.results.push({
+        group: { id: group.id, title: group.title },
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+    job.current += 1;
+  }
+  if (job.status !== "cancelled") job.status = "done";
+  job.finishedAt = Date.now();
+}
+
+export async function analyzeGroupWithOpenRouter(message, options = {}) {
+  const apiKey = options.apiKey ?? process.env.OPENROUTER_API_KEY;
+  const openRouterUrl = options.openRouterUrl ?? process.env.OPENROUTER_URL;
+  const openRouterModel =
+    options.openRouterModel ?? process.env.OPENROUTER_MODEL;
+  const fetchImpl = options.fetchImpl ?? fetch;
+
+  if (!apiKey) {
+    throw new CommandError(
+      500,
+      "OPENROUTER_API_KEY is not set for the local server"
+    );
+  }
+  if (!openRouterUrl || !openRouterModel) {
+    throw new CommandError(
+      500,
+      "OPENROUTER_URL and OPENROUTER_MODEL must be set in .env"
+    );
+  }
+  if (!message?.prompt || typeof message.prompt !== "string") {
+    throw new CommandError(400, "prompt must be a non-empty string");
+  }
+
+  logResolveFlow(
+    "openrouter.analyze-group.request.start",
+    {
+      endpoint: openRouterUrl,
+      model: openRouterModel,
+      groupCode: message.groupCode ?? null,
+      studentCount: message.studentCount ?? null,
+      promptLength: message.prompt.length,
+    },
+    options
+  );
+
+  const requestStartMs = Date.now();
+  const response = await fetchImpl(openRouterUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "X-Title": "OTUS LK Webinar Downloader",
+    },
+    body: JSON.stringify({
+      model: openRouterModel,
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: EDUCATIONAL_ANALYTICS_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: `Analyze these ${message.studentCount ?? "?"} students":\n\n${message.prompt}`,
+        },
+      ],
+    }),
+  }).catch((networkError) => {
+    logResolveFlow(
+      "openrouter.analyze-group.network-error",
+      {
+        elapsedMs: Date.now() - requestStartMs,
+        error: networkError instanceof Error ? networkError.message : "network error",
+      },
+      options
+    );
+    throw new CommandError(
+      503,
+      `OpenRouter недоступен: ${networkError instanceof Error ? networkError.message : "network error"}`
+    );
+  });
+
+  const responseText = await response.text();
+  const elapsedMs = Date.now() - requestStartMs;
+  let responsePayload;
+  try {
+    responsePayload = JSON.parse(responseText);
+  } catch (error) {
+    logResolveFlow(
+      "openrouter.analyze-group.response.invalid-json",
+      {
+        elapsedMs,
+        status: response.status,
+        contentType: response.headers?.get?.("content-type") ?? null,
+        bodyLength: responseText.length,
+        bodyPreview: previewForLog(responseText),
+        parseError: error instanceof Error ? error.message : "unknown parse error",
+      },
+      options
+    );
+    throw new CommandError(502, "OpenRouter response body was not valid JSON", {
+      code: "openrouter.analyze-group.response.invalid-json",
+      elapsedMs,
+      status: response.status,
+      bodyLength: responseText.length,
+      bodyPreview: previewForLog(responseText),
+      parseError: error instanceof Error ? error.message : "unknown parse error",
+    });
+  }
+
+  const firstChoice = responsePayload?.choices?.[0];
+  const responseContent = firstChoice?.message?.content;
+  logResolveFlow(
+    "openrouter.analyze-group.response",
+    {
+      elapsedMs,
+      status: response.status,
+      ok: response.ok,
+      contentType: response.headers?.get?.("content-type") ?? null,
+      bodyLength: responseText.length,
+      responseKeys:
+        responsePayload && typeof responsePayload === "object" ? Object.keys(responsePayload) : [],
+      choiceCount: Array.isArray(responsePayload?.choices) ? responsePayload.choices.length : null,
+      finishReason: firstChoice?.finish_reason ?? null,
+      nativeFinishReason: firstChoice?.native_finish_reason ?? null,
+      assistantContentType: responseContent === null ? "null" : typeof responseContent,
+      assistantContentLength:
+        typeof responseContent === "string" ? responseContent.length : null,
+      assistantContentPreview:
+        typeof responseContent === "string" ? previewForLog(responseContent) : null,
+    },
+    options
+  );
+
+  if (!response.ok) {
+    throw new CommandError(
+      502,
+      responsePayload?.error?.message ?? `OpenRouter returned ${response.status}`
+    );
+  }
+
+  if (typeof responseContent !== "string") {
+    throw new CommandError(502, "OpenRouter returned no content");
+  }
+
+  const cleanedResponseContent = responseContent
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "");
+
+  let analysis;
+  try {
+    analysis = JSON.parse(cleanedResponseContent);
+  } catch (error) {
+    logResolveFlow(
+      "openrouter.analyze-group.content.invalid-json",
+      {
+        contentLength: responseContent.length,
+        contentPreview: previewForLog(responseContent),
+        parseError: error instanceof Error ? error.message : "unknown parse error",
+      },
+      options
+    );
+    throw new CommandError(502, "OpenRouter analytics content was not valid JSON", {
+      code: "openrouter.analyze-group.content.invalid-json",
+      contentLength: responseContent.length,
+      contentPreview: previewForLog(responseContent),
+      parseError: error instanceof Error ? error.message : "unknown parse error",
+    });
+  }
+
+  if (!analysis?.segments || !Array.isArray(analysis.segments)) {
+    throw new CommandError(502, "OpenRouter returned unexpected analytics structure, segments is not Array");
+  }
+
+  if (message.studentCount != analysis.total) {
+    throw new CommandError(502, "OpenRouter returned unexpected analytics structure, message.studentCount != analysis.total");
+  }
+
+  logResolveFlow(
+    "openrouter.analyze-group.complete",
+    {
+      elapsedMs,
+      segmentCount: analysis.segments.length,
+      total: analysis.total ?? null,
+    },
+    options
+  );
+
+  return { analysis };
+}
+
 export async function executeCommand(message, options = {}) {
   const allowedRoot = options.allowedRoot ?? process.env.DEFAULT_ALLOWED_ROOT;
   const openFolder = options.openFolder ?? openInFinder;
@@ -884,6 +1060,24 @@ export async function executeCommand(message, options = {}) {
       );
       throw error;
     }
+  }
+
+  if (message?.command === LOCAL_COMMANDS.ANALYZE_GROUP) {
+    const analyzeGroup = options.analyzeGroup ?? analyzeGroupWithOpenRouter;
+    const result = await analyzeGroup(message, options);
+    return { ok: true, command: LOCAL_COMMANDS.ANALYZE_GROUP, ...result };
+  }
+
+  if (message?.command === LOCAL_COMMANDS.START_GROUP_ANALYSIS) {
+    const startJob = options.startJob ?? startGroupAnalysisJob;
+    const result = startJob(message, options);
+    return { ok: true, command: LOCAL_COMMANDS.START_GROUP_ANALYSIS, ...result };
+  }
+
+  if (message?.command === LOCAL_COMMANDS.CANCEL_GROUP_ANALYSIS) {
+    const cancelJob = options.cancelJob ?? cancelGroupAnalysisJob;
+    const result = cancelJob(message.jobId);
+    return { ok: true, command: LOCAL_COMMANDS.CANCEL_GROUP_ANALYSIS, ...result };
   }
 
   throw new CommandError(400, "unsupported command");
@@ -1039,6 +1233,33 @@ export function createCommandServer(options = {}) {
       sendJson(request, response, 200, { ok: true });
       return;
     }
+
+    if (
+      request.method === "GET" &&
+      request.url?.startsWith(LOCAL_SERVER.ANALYSIS_JOB_PATH + "/")
+    ) {
+      const jobId = decodeURIComponent(
+        request.url.slice(LOCAL_SERVER.ANALYSIS_JOB_PATH.length + 1)
+      );
+      const getJob = options.getJob ?? getAnalysisJob;
+      const job = getJob(jobId);
+      if (!job) {
+        sendJson(request, response, 404, { ok: false, error: "job not found" });
+        return;
+      }
+      sendJson(request, response, 200, {
+        ok: true,
+        jobId: job.jobId,
+        status: job.status,
+        total: job.total,
+        current: job.current,
+        results: job.results,
+        startedAt: job.startedAt,
+        finishedAt: job.finishedAt,
+        error: job.error,
+      });
+      return;
+    }
     if (
       request.method !== "POST" ||
       (request.url !== LOCAL_SERVER.COMMANDS_PATH &&
@@ -1145,15 +1366,40 @@ export function createCommandServer(options = {}) {
   });
 }
 
+function createFileLogger(logPath) {
+  const stream = createWriteStream(logPath, { flags: "a", encoding: "utf8" });
+  stream.on("error", (err) => {
+    console.error(`[log] Failed to write to log file: ${err.message}`);
+  });
+  return function log(line) {
+    const timestamp = new Date().toISOString();
+    const entry = `${timestamp} ${line}\n`;
+    process.stdout.write(entry);
+    stream.write(entry);
+  };
+}
+
 async function startServer() {
   await loadEnvironmentFile();
   const host = process.env.OTUS_COMMAND_HOST ?? DEFAULT_HOST;
   const port = Number(process.env.OTUS_COMMAND_PORT ?? DEFAULT_PORT);
   const allowedRoot = process.env.DEFAULT_ALLOWED_ROOT;
-  const server = createCommandServer({ allowedRoot });
+
+  const logDir = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../logs"
+  );
+  await mkdir(logDir, { recursive: true });
+  const logPath = path.join(logDir, "server.log");
+  const logger = createFileLogger(logPath);
+
+  logger(`OTUS command server starting on http://${host}:${port}`);
+  logger(`Allowed folder root: ${allowedRoot}`);
+  logger(`Log file: ${logPath}`);
+
+  const server = createCommandServer({ allowedRoot, logger });
   server.listen(port, host, () => {
-    console.log(`OTUS command server listening on http://${host}:${port}`);
-    console.log(`Allowed folder root: ${allowedRoot}`);
+    logger(`OTUS command server listening on http://${host}:${port}`);
   });
 }
 

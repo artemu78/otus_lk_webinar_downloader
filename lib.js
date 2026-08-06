@@ -440,3 +440,158 @@ export async function extractWebinarData() {
     console.error("Failed to fetch or parse data:", error);
   }
 }
+
+const SCORING_PATH_RE = /^\/teacher-lk\/scoring\b/;
+
+export function parseScoringUrl(rawUrl) {
+  let url;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error("Адрес активной вкладки некорректен.");
+  }
+
+  if (url.protocol !== "https:" || url.hostname !== "otus.ru") {
+    throw new Error(
+      "Сначала откройте страницу скоринга в кабинете преподавателя OTUS."
+    );
+  }
+
+  if (!url.pathname.match(SCORING_PATH_RE)) {
+    throw new Error(
+      "Не удалось определить страницу скоринга по этому адресу."
+    );
+  }
+
+  return { isScoring: true };
+}
+
+export async function fetchGroupsList(fetchImpl = fetch) {
+  const response = await fetchImpl(
+    "https://otus.ru/api/teacher.lk.group.list?activity_status=all&all=true",
+    {
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Не удалось получить список групп (${response.status}).`
+    );
+  }
+  const payload = await response.json();
+  if (!Array.isArray(payload?.data)) {
+    throw new Error("Ответ API не содержит список групп.");
+  }
+  const now = Date.now();
+  return payload.data.filter((group) => {
+    if (!group?.start_date) return true;
+    return new Date(group.start_date).getTime() <= now;
+  });
+}
+
+export async function fetchGroupStudents(groupId, fetchImpl = fetch) {
+  const response = await fetchImpl(
+    `https://otus.ru/api/reports.scoring.group.get?group_id=${encodeURIComponent(groupId)}&sql_report_id=757`,
+    {
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Не удалось получить данные студентов (${response.status}).`
+    );
+  }
+  const payload = await response.json();
+  if (!Array.isArray(payload?.data?.rows)) {
+    throw new Error("Ответ API не содержит список студентов.");
+  }
+  return payload.data.rows;
+}
+
+export function buildGroupAnalyticsPrompt(students) {
+  return students
+    .map((row) => {
+      const [name, title, birthYear, aboutSelf, technologies] = row;
+      const parts = [];
+      if (title) parts.push(`Role: ${title}`);
+      if (birthYear) parts.push(`Birth Year: ${birthYear}`);
+      if (aboutSelf) parts.push(`About: ${aboutSelf}`);
+      if (technologies) parts.push(`Technologies: ${technologies}`);
+      return parts.join("\n");
+    })
+    .join("\n\n");
+}
+
+export function buildGroupAnalyticsTSV(results) {
+  const quoteTsv = (value) =>
+    `"${String(value || "").replace(/"/g, '""')}"`;
+
+  // Encodes multi-line detail text as a Sheets SUBSTITUTE formula so that
+  // pasting into a cell renders each detail item on a separate line.
+  const toSheetDetail = (lines) => {
+    if (!lines || lines.length === 0) return '""';
+    if (lines.length === 1) return `"${lines[0].replace(/"/g, '""')}"`;
+    // Use a literal marker that Sheets SUBSTITUTE can replace with CHAR(10).
+    // The marker must not appear in the data; we use the ASCII unit separator.
+    const joined = lines.join("\x1F");
+    const escaped = joined.replace(/"/g, '""');
+    return `"=SUBSTITUTE(""${escaped}"",""\x1F"",CHAR(10))"`;
+  };
+
+  const header = ["Категория", "Количество", "Детализация"];
+  const parts = [];
+
+  for (const { group, analysis } of results) {
+    if (!analysis?.segments || !Array.isArray(analysis.segments)) continue;
+
+    // Row with just the group name (no tabs — single cell content)
+    parts.push(quoteTsv(group.title));
+
+    // Header row for this group's table
+    parts.push(header.join("\t"));
+
+    // Aggregate segments by category to produce one row per category.
+    // Order is preserved: first occurrence of each category determines its position.
+    const categoryOrder = [];
+    const byCategory = new Map();
+    for (const segment of analysis.segments) {
+      const cat = segment.category ?? "";
+      if (!byCategory.has(cat)) {
+        categoryOrder.push(cat);
+        byCategory.set(cat, { totalCount: 0, detailLines: [] });
+      }
+      const entry = byCategory.get(cat);
+      const count = segment.count ?? 0;
+      entry.totalCount += count;
+
+      // Build detail lines from subsegments: "<Subcategory> <Seniority> <count>"
+      if (Array.isArray(segment.subsegments) && segment.subsegments.length > 0) {
+        for (const sub of segment.subsegments) {
+          const subCount = sub.count ?? 0;
+          if (subCount === 0) continue;
+          const subLine = [sub.subcategory, sub.seniority, subCount]
+            .filter(Boolean)
+            .join(" ");
+          entry.detailLines.push(subLine);
+        }
+      } else {
+        // Fallback: no subsegments returned by AI — show category + count only
+        entry.detailLines.push(`${cat} ${count}`);
+      }
+    }
+
+    for (const cat of categoryOrder) {
+      const { totalCount, detailLines } = byCategory.get(cat);
+      parts.push(
+        [quoteTsv(cat), totalCount, toSheetDetail(detailLines)].join("\t")
+      );
+    }
+
+    // Empty line separator between groups
+    parts.push("");
+  }
+
+  return parts.join("\n");
+}
