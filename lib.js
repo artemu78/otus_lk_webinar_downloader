@@ -293,16 +293,34 @@ export function buildAttendanceTableTSV({ lessonCache, masterStudents }) {
     ...lessonCache.map((lesson, index) =>
       quoteTsv(`L${index + 1}: ${lesson.title || ""}`)
     ),
+    "Attended Webinars",
   ];
 
+  const webinarTotals = lessonCache.map(() => 0);
   const rows = [...masterStudents.entries()].map(([studentId, studentName]) => {
-    const attendance = lessonCache.map((lesson) =>
-      getAttendedIds(lesson).has(studentId) ? '"🟢"' : '"🔴"'
-    );
-    return [quoteTsv(studentName), ...attendance].join("\t");
+    let attendedWebinars = 0;
+    const attendance = lessonCache.map((lesson, lessonIndex) => {
+      const attended = getAttendedIds(lesson).has(studentId);
+      if (attended) {
+        attendedWebinars += 1;
+        webinarTotals[lessonIndex] += 1;
+      }
+      return attended ? '"🟢"' : '"🔴"';
+    });
+    return [
+      quoteTsv(studentName),
+      ...attendance,
+      attendedWebinars,
+    ].join("\t");
   });
 
-  return [header.join("\t"), ...rows].join("\n");
+  const totalsRow = [
+    quoteTsv("Students Attended"),
+    ...webinarTotals,
+    webinarTotals.reduce((total, count) => total + count, 0),
+  ].join("\t");
+
+  return [header.join("\t"), ...rows, totalsRow].join("\n");
 }
 
 export async function collectWebinarData(

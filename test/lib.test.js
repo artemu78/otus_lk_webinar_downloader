@@ -131,9 +131,10 @@ test("generates the attendance table independently", () => {
       lessonCache: lessons,
       masterStudents: students,
     }),
-    'Student Name\t"L1: Intro ""live"""\t"L2: Practice"\n' +
-      '"Alice"\t"🟢"\t"🔴"\n' +
-      '"Bob"\t"🔴"\t"🟢"'
+    'Student Name\t"L1: Intro ""live"""\t"L2: Practice"\tAttended Webinars\n' +
+      '"Alice"\t"🟢"\t"🔴"\t1\n' +
+      '"Bob"\t"🔴"\t"🟢"\t1\n' +
+      '"Students Attended"\t1\t1\t2'
   );
 });
 

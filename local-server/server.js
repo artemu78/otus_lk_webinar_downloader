@@ -14,7 +14,16 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { LOCAL_COMMANDS, LOCAL_SERVER, EDUCATIONAL_ANALYTICS_SYSTEM_PROMPT, REQUIRED_ENV_VARIABLES, GROUP_RE, COURSE_DIRECTORY_NAMES, CYRILLIC_TO_LATIN } from "../constants.js";
+import {
+  LOCAL_COMMANDS,
+  LOCAL_SERVER,
+  HOMEWORK_PLATFORMS,
+  EDUCATIONAL_ANALYTICS_SYSTEM_PROMPT,
+  REQUIRED_ENV_VARIABLES,
+  GROUP_RE,
+  COURSE_DIRECTORY_NAMES,
+  CYRILLIC_TO_LATIN,
+} from "../constants.js";
 
 export const DEFAULT_HOST = LOCAL_SERVER.HOST;
 export const DEFAULT_PORT = LOCAL_SERVER.PORT;
@@ -86,6 +95,14 @@ export function buildHomeworkFolderPath(
     transliterateFolderPart(surname),
     `hw${homeworkNumber}`
   );
+}
+
+export function buildHexletHomeworkFolderPath(allowedRoot, githubUrl) {
+  const repositoryUrl = normalizeGitHubRepositoryUrl(githubUrl);
+  const [owner, repository] = new URL(repositoryUrl).pathname
+    .split("/")
+    .filter(Boolean);
+  return path.join(allowedRoot, "homeworks", owner, repository);
 }
 
 function logResolveFlow(stage, details = {}, options = {}) {
@@ -759,7 +776,10 @@ async function runGroupAnalysisJob(job, groups, options) {
         },
         options
       );
-      job.results.push({ group: { id: group.id, title: group.title }, analysis });
+      job.results.push({
+        group: { id: group.id, title: group.title },
+        analysis,
+      });
     } catch (error) {
       job.results.push({
         group: { id: group.id, title: group.title },
@@ -832,7 +852,10 @@ export async function analyzeGroupWithOpenRouter(message, options = {}) {
       "openrouter.analyze-group.network-error",
       {
         elapsedMs: Date.now() - requestStartMs,
-        error: networkError instanceof Error ? networkError.message : "network error",
+        error:
+          networkError instanceof Error
+            ? networkError.message
+            : "network error",
       },
       options
     );
@@ -856,7 +879,8 @@ export async function analyzeGroupWithOpenRouter(message, options = {}) {
         contentType: response.headers?.get?.("content-type") ?? null,
         bodyLength: responseText.length,
         bodyPreview: previewForLog(responseText),
-        parseError: error instanceof Error ? error.message : "unknown parse error",
+        parseError:
+          error instanceof Error ? error.message : "unknown parse error",
       },
       options
     );
@@ -866,7 +890,8 @@ export async function analyzeGroupWithOpenRouter(message, options = {}) {
       status: response.status,
       bodyLength: responseText.length,
       bodyPreview: previewForLog(responseText),
-      parseError: error instanceof Error ? error.message : "unknown parse error",
+      parseError:
+        error instanceof Error ? error.message : "unknown parse error",
     });
   }
 
@@ -881,15 +906,22 @@ export async function analyzeGroupWithOpenRouter(message, options = {}) {
       contentType: response.headers?.get?.("content-type") ?? null,
       bodyLength: responseText.length,
       responseKeys:
-        responsePayload && typeof responsePayload === "object" ? Object.keys(responsePayload) : [],
-      choiceCount: Array.isArray(responsePayload?.choices) ? responsePayload.choices.length : null,
+        responsePayload && typeof responsePayload === "object"
+          ? Object.keys(responsePayload)
+          : [],
+      choiceCount: Array.isArray(responsePayload?.choices)
+        ? responsePayload.choices.length
+        : null,
       finishReason: firstChoice?.finish_reason ?? null,
       nativeFinishReason: firstChoice?.native_finish_reason ?? null,
-      assistantContentType: responseContent === null ? "null" : typeof responseContent,
+      assistantContentType:
+        responseContent === null ? "null" : typeof responseContent,
       assistantContentLength:
         typeof responseContent === "string" ? responseContent.length : null,
       assistantContentPreview:
-        typeof responseContent === "string" ? previewForLog(responseContent) : null,
+        typeof responseContent === "string"
+          ? previewForLog(responseContent)
+          : null,
     },
     options
   );
@@ -897,7 +929,8 @@ export async function analyzeGroupWithOpenRouter(message, options = {}) {
   if (!response.ok) {
     throw new CommandError(
       502,
-      responsePayload?.error?.message ?? `OpenRouter returned ${response.status}`
+      responsePayload?.error?.message ??
+        `OpenRouter returned ${response.status}`
     );
   }
 
@@ -919,24 +952,36 @@ export async function analyzeGroupWithOpenRouter(message, options = {}) {
       {
         contentLength: responseContent.length,
         contentPreview: previewForLog(responseContent),
-        parseError: error instanceof Error ? error.message : "unknown parse error",
+        parseError:
+          error instanceof Error ? error.message : "unknown parse error",
       },
       options
     );
-    throw new CommandError(502, "OpenRouter analytics content was not valid JSON", {
-      code: "openrouter.analyze-group.content.invalid-json",
-      contentLength: responseContent.length,
-      contentPreview: previewForLog(responseContent),
-      parseError: error instanceof Error ? error.message : "unknown parse error",
-    });
+    throw new CommandError(
+      502,
+      "OpenRouter analytics content was not valid JSON",
+      {
+        code: "openrouter.analyze-group.content.invalid-json",
+        contentLength: responseContent.length,
+        contentPreview: previewForLog(responseContent),
+        parseError:
+          error instanceof Error ? error.message : "unknown parse error",
+      }
+    );
   }
 
   if (!analysis?.segments || !Array.isArray(analysis.segments)) {
-    throw new CommandError(502, "OpenRouter returned unexpected analytics structure, segments is not Array");
+    throw new CommandError(
+      502,
+      "OpenRouter returned unexpected analytics structure, segments is not Array"
+    );
   }
 
   if (message.studentCount != analysis.total) {
-    throw new CommandError(502, "OpenRouter returned unexpected analytics structure, message.studentCount != analysis.total");
+    throw new CommandError(
+      502,
+      "OpenRouter returned unexpected analytics structure, message.studentCount != analysis.total"
+    );
   }
 
   logResolveFlow(
@@ -953,14 +998,31 @@ export async function analyzeGroupWithOpenRouter(message, options = {}) {
 }
 
 export async function executeCommand(message, options = {}) {
-  const allowedRoot = options.allowedRoot ?? process.env.DEFAULT_ALLOWED_ROOT;
+  const platform = message?.platform ?? HOMEWORK_PLATFORMS.OTUS;
+  if (!Object.values(HOMEWORK_PLATFORMS).includes(platform)) {
+    throw new CommandError(400, "unsupported homework platform");
+  }
+  const isHexlet = platform === HOMEWORK_PLATFORMS.HEXLET;
+  const allowedRoot = isHexlet
+    ? (options.allowedRootHexlet ?? process.env.DEFAULT_ALLOWED_ROOT_HEXLET)
+    : (options.allowedRoot ?? process.env.DEFAULT_ALLOWED_ROOT);
   const openFolder = options.openFolder ?? openInFinder;
 
   const resolveFolder = () => {
+    if (typeof allowedRoot !== "string" || !allowedRoot.trim()) {
+      throw new CommandError(
+        500,
+        isHexlet
+          ? "DEFAULT_ALLOWED_ROOT_HEXLET is not set for the local server"
+          : "DEFAULT_ALLOWED_ROOT is not set for the local server"
+      );
+    }
     const requestedPath =
       typeof message?.path === "string"
         ? message.path
-        : buildHomeworkFolderPath(allowedRoot, message);
+        : isHexlet
+          ? buildHexletHomeworkFolderPath(allowedRoot, message?.githubUrl)
+          : buildHomeworkFolderPath(allowedRoot, message);
     return ensureFolder(requestedPath, allowedRoot);
   };
 
@@ -1002,7 +1064,9 @@ export async function executeCommand(message, options = {}) {
         requestedPath:
           typeof message?.path === "string"
             ? message.path
-            : buildHomeworkFolderPath(allowedRoot, message),
+            : isHexlet
+              ? buildHexletHomeworkFolderPath(allowedRoot, message?.githubUrl)
+              : buildHomeworkFolderPath(allowedRoot, message),
         messageCount: Array.isArray(message.messages)
           ? message.messages.length
           : null,
@@ -1012,7 +1076,9 @@ export async function executeCommand(message, options = {}) {
     try {
       const folderPath = await resolveFolder();
       logResolveFlow("folder.validated", { folderPath }, flowOptions);
-      let material = await analyzeMessages(message.messages, flowOptions);
+      let material = isHexlet
+        ? { githubUrl: message.githubUrl, zipUrl: null }
+        : await analyzeMessages(message.messages, flowOptions);
       if (typeof material === "string") {
         // Compatibility with local integrations that return the older GitHub-only value.
         material = { githubUrl: material, zipUrl: null };
@@ -1071,13 +1137,21 @@ export async function executeCommand(message, options = {}) {
   if (message?.command === LOCAL_COMMANDS.START_GROUP_ANALYSIS) {
     const startJob = options.startJob ?? startGroupAnalysisJob;
     const result = startJob(message, options);
-    return { ok: true, command: LOCAL_COMMANDS.START_GROUP_ANALYSIS, ...result };
+    return {
+      ok: true,
+      command: LOCAL_COMMANDS.START_GROUP_ANALYSIS,
+      ...result,
+    };
   }
 
   if (message?.command === LOCAL_COMMANDS.CANCEL_GROUP_ANALYSIS) {
     const cancelJob = options.cancelJob ?? cancelGroupAnalysisJob;
     const result = cancelJob(message.jobId);
-    return { ok: true, command: LOCAL_COMMANDS.CANCEL_GROUP_ANALYSIS, ...result };
+    return {
+      ok: true,
+      command: LOCAL_COMMANDS.CANCEL_GROUP_ANALYSIS,
+      ...result,
+    };
   }
 
   throw new CommandError(400, "unsupported command");
@@ -1321,12 +1395,15 @@ export function createCommandServer(options = {}) {
         return;
       }
       try {
-        const allowedRoot = options.allowedRoot ?? process.env.DEFAULT_ALLOWED_ROOT;
+        const allowedRoot =
+          options.allowedRoot ?? process.env.DEFAULT_ALLOWED_ROOT;
         const folderPath = await ensureFolder(
           parseUploadFolder(request, allowedRoot),
           allowedRoot
         );
-        const filename = parseUploadFilename(request.headers["x-otus-file-name"]);
+        const filename = parseUploadFilename(
+          request.headers["x-otus-file-name"]
+        );
         const { skippedExisting } = await saveStaticFileBody(
           request,
           folderPath,
@@ -1339,7 +1416,8 @@ export function createCommandServer(options = {}) {
           skippedExisting,
         });
       } catch (error) {
-        const statusCode = error instanceof CommandError ? error.statusCode : 500;
+        const statusCode =
+          error instanceof CommandError ? error.statusCode : 500;
         sendJson(request, response, statusCode, errorPayload(error));
       }
       return;
@@ -1384,6 +1462,7 @@ async function startServer() {
   const host = process.env.OTUS_COMMAND_HOST ?? DEFAULT_HOST;
   const port = Number(process.env.OTUS_COMMAND_PORT ?? DEFAULT_PORT);
   const allowedRoot = process.env.DEFAULT_ALLOWED_ROOT;
+  const allowedRootHexlet = process.env.DEFAULT_ALLOWED_ROOT_HEXLET;
 
   const logDir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -1395,9 +1474,14 @@ async function startServer() {
 
   logger(`OTUS command server starting on http://${host}:${port}`);
   logger(`Allowed folder root: ${allowedRoot}`);
+  logger(`Allowed Hexlet folder root: ${allowedRootHexlet}`);
   logger(`Log file: ${logPath}`);
 
-  const server = createCommandServer({ allowedRoot, logger });
+  const server = createCommandServer({
+    allowedRoot,
+    allowedRootHexlet,
+    logger,
+  });
   server.listen(port, host, () => {
     logger(`OTUS command server listening on http://${host}:${port}`);
   });

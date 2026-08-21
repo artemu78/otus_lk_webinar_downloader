@@ -19,8 +19,9 @@ Finder.
 ## High-level architecture
 
 1. `popup.html`, `popup.css`, and `popup.js` provide the extension UI. The popup
-   inspects the active OTUS URL and switches between lesson actions and the
-   homework-folder action. It also generates attendance TSV in the browser and
+   inspects the active OTUS or Hexlet URL and switches between lesson actions and the
+   homework-folder action. On Hexlet project-member pages it reads the first
+   GitHub repository link from the active tab. It also generates attendance TSV in the browser and
    copies it to the clipboard.
 2. `background.js` is the Manifest V3 service worker and privileged coordinator.
    It receives messages from the popup/content script, calls authenticated OTUS
@@ -35,7 +36,7 @@ Finder.
 5. `local-server/server.js` is the dependency-free local command bridge. It
    listens on `127.0.0.1:8765`; `POST /commands` accepts the allowlisted
    `open_folder` command, creates the directory if needed, validates that the
-   requested and resolved paths remain under the configured OTUS projects root,
+   requested and resolved paths remain under the configured OTUS or Hexlet projects root,
    and invokes `/usr/bin/open` without a shell. `GET /health` is available for
    diagnostics.
 6. `manifest.json` declares the popup, background worker, Google Sheets content
@@ -62,6 +63,8 @@ service worker to open `sheets.new`.
 - The default local root is `/Users/artemreva/projects/otus`; it can be changed
   with `OTUS_PROJECTS_ROOT`. Host and port can be changed with
   `OTUS_COMMAND_HOST` and `OTUS_COMMAND_PORT`.
+- Hexlet homework commands use `DEFAULT_ALLOWED_ROOT_HEXLET` and always place
+  repository paths below its `homeworks` subfolder.
 
 ## Development map
 
