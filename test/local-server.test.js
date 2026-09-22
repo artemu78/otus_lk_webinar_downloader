@@ -521,6 +521,64 @@ test("clones through the configured SSH host alias", async () => {
   assert.equal(invocation.options.cwd, folder);
 });
 
+test("pulls an initialized repository when the student folder is not empty", async () => {
+  const folder = await mkdtemp(
+    path.join(os.tmpdir(), "otus-command-gh-pull-")
+  );
+  await mkdir(path.join(folder, ".git"));
+  await writeFile(path.join(folder, "README.md"), "existing checkout\n");
+  const invocations = [];
+
+  await cloneRepositoryWithSsh(
+    "https://github.com/student/homework",
+    folder,
+    {
+      run: async (executable, args, options) => {
+        invocations.push({ executable, args, options });
+        return args[0] === "rev-parse" ? "true\n" : "";
+      },
+    }
+  );
+
+  assert.deepEqual(
+    invocations.map(({ executable, args, options }) => ({
+      executable,
+      args,
+      cwd: options.cwd,
+    })),
+    [
+      {
+        executable: "git",
+        args: ["rev-parse", "--is-inside-work-tree"],
+        cwd: folder,
+      },
+      { executable: "git", args: ["pull"], cwd: folder },
+    ]
+  );
+});
+
+test("does not clone over a non-empty folder without a Git repository", async () => {
+  const folder = await mkdtemp(
+    path.join(os.tmpdir(), "otus-command-gh-non-repo-")
+  );
+  await writeFile(path.join(folder, "notes.txt"), "keep me\n");
+  let commandWasRun = false;
+
+  await assert.rejects(
+    cloneRepositoryWithSsh(
+      "https://github.com/student/homework",
+      folder,
+      {
+        run: async () => {
+          commandWasRun = true;
+        },
+      }
+    ),
+    /not an initialized Git repository/
+  );
+  assert.equal(commandWasRun, false);
+});
+
 test("logs the student materials resolve flow without logging message contents", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "otus-command-logs-"));
   const logs = [];

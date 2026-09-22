@@ -12,6 +12,7 @@ import {
 import { EXTENSION_MESSAGES, HOMEWORK_PLATFORMS } from "./constants.js";
 
 const lessonElement = document.querySelector("#lesson");
+const popupLogo = document.querySelector(".popup-logo");
 const downloadButton = document.querySelector("#download");
 const summaryButton = document.querySelector("#summary");
 const attendanceButton = document.querySelector("#attendance");
@@ -58,6 +59,8 @@ let homeworkStorageKey;
 let activeTabId;
 let scoringIds;
 let allGroups = [];
+
+popupLogo.title = `Версия ${chrome.runtime.getManifest().version}`;
 
 function debounce(fn, ms) {
   let timer;

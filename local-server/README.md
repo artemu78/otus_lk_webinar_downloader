@@ -63,6 +63,10 @@ For `clone_student_materials`, the server writes structured lines prefixed with
 extracted and normalized URLs, PR source resolution, the exact safe `gh`
 argument array, target folder, completion, and errors. API keys and student
 message contents are never logged.
+If the target folder is empty, the repository is cloned into it. If the target
+folder is non-empty and is itself an initialized Git repository, the server runs
+`git pull` there instead. A non-empty folder that is not a Git repository is
+left untouched and reported as a conflict.
 When OpenRouter parsing fails, diagnostics distinguish an invalid HTTP response
 body from invalid assistant content and include response metadata, finish
 reasons, lengths, and a whitespace-normalized preview capped at 400 characters.

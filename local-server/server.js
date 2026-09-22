@@ -672,11 +672,45 @@ export async function cloneRepositoryWithSsh(
 ) {
   logResolveFlow("clone.folder.check", { folderPath }, options);
   const entries = await readdir(folderPath);
+  const run = options.run ?? runCommand;
   if (entries.length !== 0) {
-    throw new CommandError(
-      409,
-      "student folder is not empty; clone into '.' was cancelled"
+    let hasGitMetadata = false;
+    try {
+      const gitMetadata = await lstat(path.join(folderPath, ".git"));
+      hasGitMetadata = gitMetadata.isDirectory() || gitMetadata.isFile();
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+
+    let isGitRepository = false;
+    if (hasGitMetadata) {
+      try {
+        const output = await run(
+          "git",
+          ["rev-parse", "--is-inside-work-tree"],
+          { cwd: folderPath }
+        );
+        isGitRepository = output.trim() === "true";
+      } catch {
+        isGitRepository = false;
+      }
+    }
+
+    if (!isGitRepository) {
+      throw new CommandError(
+        409,
+        "student folder is not empty and is not an initialized Git repository"
+      );
+    }
+
+    logResolveFlow(
+      "pull.command.start",
+      { executable: "git", arguments: ["pull"], folderPath },
+      options
     );
+    await run("git", ["pull"], { cwd: folderPath });
+    logResolveFlow("pull.command.complete", { folderPath }, options);
+    return;
   }
 
   const normalizedUrl = normalizeGitHubRepositoryUrl(repositoryUrl);
@@ -689,7 +723,6 @@ export async function cloneRepositoryWithSsh(
     );
   }
   const cloneUrl = `git@${githubSshHost}:${repositoryName}.git`;
-  const run = options.run ?? runCommand;
   logResolveFlow(
     "clone.repository.resolve",
     { repositoryUrl, repositoryName, normalizedUrl, githubSshHost, cloneUrl },
