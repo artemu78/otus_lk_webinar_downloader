@@ -154,7 +154,7 @@ test("counts each visitor once across online and offline attendance", () => {
 
   assert.equal(
     rows[0],
-    "Lesson Title\tOnline Count\tOnline Names\tOffline Count\tOffline Names\tVisitors total\tDid Not Come Count\tDid Not Come Names\tPoll Count\tPoll Names"
+    "Lesson Title\tOnline Count\tOnline Names\tOffline Count\tOffline Names\tVisitors total\tDid Not Come Count\tDid Not Come Names\tPoll Count\tPoll Average\tPoll Names"
   );
   assert.equal(rows[1].split("\t")[5], "3");
 });
@@ -168,6 +168,7 @@ test("generates the attendance table independently", () => {
     'Student Name\t"1. Intro ""live""\nAda Lovelace"\t"2. Practice\nGrace Hopper"\tAttended Webinars\n' +
       '"Alice"\t"🟢"\t"🔴"\t1\n' +
       '"Bob"\t"🔴"\t"🟢"\t1\n' +
+      '"Average Poll Score"\tN/A\tN/A\t\n' +
       '"Students Attended"\t1\t1\t2'
   );
 });

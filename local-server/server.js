@@ -317,7 +317,7 @@ function runCommand(executable, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, {
       cwd: options.cwd,
-      env: process.env,
+      env: { ...process.env, ...(options.env ?? {}) },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
@@ -687,10 +687,15 @@ export async function cloneRepositoryWithSsh(
       try {
         const output = await run(
           "git",
-          ["rev-parse", "--is-inside-work-tree"],
+          ["rev-parse", "--show-toplevel"],
           { cwd: folderPath }
         );
-        isGitRepository = output.trim() === "true";
+        const toplevel = output.trim();
+        const [realToplevel, realFolder] = await Promise.all([
+          realpath(toplevel).catch(() => path.resolve(toplevel)),
+          realpath(folderPath).catch(() => path.resolve(folderPath)),
+        ]);
+        isGitRepository = realToplevel === realFolder;
       } catch {
         isGitRepository = false;
       }
@@ -708,7 +713,10 @@ export async function cloneRepositoryWithSsh(
       { executable: "git", arguments: ["pull"], folderPath },
       options
     );
-    await run("git", ["pull"], { cwd: folderPath });
+    await run("git", ["pull"], {
+      cwd: folderPath,
+      env: { GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" },
+    });
     logResolveFlow("pull.command.complete", { folderPath }, options);
     return;
   }
@@ -876,7 +884,7 @@ export async function analyzeGroupWithOpenRouter(message, options = {}) {
         { role: "system", content: EDUCATIONAL_ANALYTICS_SYSTEM_PROMPT },
         {
           role: "user",
-          content: `Analyze these ${message.studentCount ?? "?"} students":\n\n${message.prompt}`,
+          content: `Analyze these ${message.studentCount ?? "?"} students for group "${message.groupCode ?? ""}":\n\n${message.prompt}`,
         },
       ],
     }),
