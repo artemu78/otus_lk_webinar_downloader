@@ -535,7 +535,7 @@ test("pulls an initialized repository when the student folder is not empty", asy
     {
       run: async (executable, args, options) => {
         invocations.push({ executable, args, options });
-        return args[0] === "rev-parse" ? "true\n" : "";
+        return args[0] === "rev-parse" ? `${folder}\n` : "";
       },
     }
   );
@@ -545,16 +545,50 @@ test("pulls an initialized repository when the student folder is not empty", asy
       executable,
       args,
       cwd: options.cwd,
+      env: options.env,
     })),
     [
       {
         executable: "git",
-        args: ["rev-parse", "--is-inside-work-tree"],
+        args: ["rev-parse", "--show-toplevel"],
         cwd: folder,
+        env: undefined,
       },
-      { executable: "git", args: ["pull"], cwd: folder },
+      {
+        executable: "git",
+        args: ["pull"],
+        cwd: folder,
+        env: { GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" },
+      },
     ]
   );
+});
+
+test("does not pull an enclosing repository if .git belongs to parent", async () => {
+  const parentFolder = await mkdtemp(
+    path.join(os.tmpdir(), "otus-command-gh-parent-")
+  );
+  const studentFolder = path.join(parentFolder, "student");
+  await mkdir(studentFolder, { recursive: true });
+  await mkdir(path.join(studentFolder, ".git"));
+  await writeFile(path.join(studentFolder, "notes.txt"), "keep me\n");
+  let pullWasRun = false;
+
+  await assert.rejects(
+    cloneRepositoryWithSsh(
+      "https://github.com/student/homework",
+      studentFolder,
+      {
+        run: async (executable, args) => {
+          if (args[0] === "rev-parse") return `${parentFolder}\n`;
+          if (args[0] === "pull") pullWasRun = true;
+          return "";
+        },
+      }
+    ),
+    /not an initialized Git repository/
+  );
+  assert.equal(pullWasRun, false);
 });
 
 test("does not clone over a non-empty folder without a Git repository", async () => {
