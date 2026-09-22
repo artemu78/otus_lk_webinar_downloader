@@ -423,7 +423,11 @@ export async function collectWebinarData(
       const visitorData = visitorsData.data || {};
 
       onlineUsers = visitorData.online || [];
-      offlineUsers = visitorData.record?.users || [];
+      offlineUsers =
+        visitorData.record?.users ||
+        visitorData.offline ||
+        visitorData.recorded ||
+        [];
       rawOfflineCounter = visitorData.record?.counter || 0;
 
       [...onlineUsers, ...offlineUsers].forEach((user) => {
@@ -566,6 +570,7 @@ export function buildGroupAnalyticsPrompt(students) {
     .map((row) => {
       const [name, title, birthYear, aboutSelf, technologies] = row;
       const parts = [];
+      if (name) parts.push(`Name: ${name}`);
       if (title) parts.push(`Role: ${title}`);
       if (birthYear) parts.push(`Birth Year: ${birthYear}`);
       if (aboutSelf) parts.push(`About: ${aboutSelf}`);
