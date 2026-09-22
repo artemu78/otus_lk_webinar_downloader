@@ -1,8 +1,8 @@
 # Local command server
 
 The extension sends local OS commands to this dependency-free Node.js server.
-It listens only on `127.0.0.1` and accepts folders located below the
-`DEFAULT_ALLOWED_ROOT` configured in `.env`.
+It listens only on `127.0.0.1` and accepts folders located below the matching
+OTUS or Hexlet root configured in `.env`.
 
 Start it from the repository root:
 
@@ -35,6 +35,9 @@ Supported endpoints:
   `GITHUB_SSH_HOST`; ZIP archives are downloaded by the extension with the
   authenticated Chrome session, then unpacked without overwriting existing files
   after path and symbolic-link checks.
+- The same commands with `platform: "hexlet"` and `githubUrl` build
+  `DEFAULT_ALLOWED_ROOT_HEXLET/homeworks/<owner>/<repository>`. The clone command
+  uses that URL directly and does not call OpenRouter.
 - `POST /static-file` — accepts a supported static attachment only from the
   extension, resolves the same student folder, and stores it without overwriting
   an existing file.
@@ -44,6 +47,7 @@ Environment variables:
 - `OTUS_COMMAND_HOST` (default `127.0.0.1`)
 - `OTUS_COMMAND_PORT` (default `8765`)
 - `DEFAULT_ALLOWED_ROOT` is required and defines the local OTUS projects root.
+- `DEFAULT_ALLOWED_ROOT_HEXLET` is required and defines the local Hexlet projects root.
 - `OPENROUTER_API_KEY`, `OPENROUTER_URL`, `OPENROUTER_MODEL`, and
   `GITHUB_SSH_HOST` are required in `.env`. The example uses
   `GITHUB_SSH_HOST=artemreva-hub`, which must match a `Host` entry in
@@ -51,14 +55,18 @@ Environment variables:
 
 The server never passes paths or URLs through a shell. It invokes `/usr/bin/open`
 and `git`/`gh` with argument arrays after checking both the requested and resolved path.
-Cached absolute paths are accepted only when they remain under
-`DEFAULT_ALLOWED_ROOT`; `analyze_result` is also checked after symlink resolution.
+Cached absolute paths are accepted only when they remain under the root selected
+by the command platform; `analyze_result` is also checked after symlink resolution.
 
 For `clone_student_materials`, the server writes structured lines prefixed with
 `[student-materials]` to stdout. They include a flow ID, OpenRouter status,
 extracted and normalized URLs, PR source resolution, the exact safe `gh`
 argument array, target folder, completion, and errors. API keys and student
 message contents are never logged.
+If the target folder is empty, the repository is cloned into it. If the target
+folder is non-empty and is itself an initialized Git repository, the server runs
+`git pull` there instead. A non-empty folder that is not a Git repository is
+left untouched and reported as a conflict.
 When OpenRouter parsing fails, diagnostics distinguish an invalid HTTP response
 body from invalid assistant content and include response metadata, finish
 reasons, lengths, and a whitespace-normalized preview capped at 400 characters.

@@ -21,6 +21,11 @@ export const LOCAL_COMMANDS = Object.freeze({
   CANCEL_GROUP_ANALYSIS: "cancel_group_analysis",
 });
 
+export const HOMEWORK_PLATFORMS = Object.freeze({
+  OTUS: "otus",
+  HEXLET: "hexlet",
+});
+
 const LOCAL_SERVER_HOST = "127.0.0.1";
 const LOCAL_SERVER_PORT = 8765;
 const LOCAL_COMMANDS_PATH = "/commands";
@@ -97,6 +102,7 @@ Rules:
 
 export const REQUIRED_ENV_VARIABLES = [
   "DEFAULT_ALLOWED_ROOT",
+  "DEFAULT_ALLOWED_ROOT_HEXLET",
   "OPENROUTER_API_KEY",
   "OPENROUTER_URL",
   "OPENROUTER_MODEL",

@@ -151,6 +151,61 @@ test("uses the cached path for Finder without calling OTUS", async () => {
   });
 });
 
+test("opens a Hexlet repository folder without calling OTUS", async () => {
+  let localCommand;
+  globalThis.fetch = async (url, options = {}) => {
+    assert.equal(url, "http://127.0.0.1:8765/commands");
+    localCommand = JSON.parse(options.body);
+    return jsonResponse({
+      ok: true,
+      path: "/projects/hexlet/homeworks/student/project",
+    });
+  };
+
+  const response = await sendRuntimeMessage({
+    type: "OPEN_HOMEWORK_FOLDER",
+    payload: {
+      platform: "hexlet",
+      githubUrl: "https://github.com/student/project",
+    },
+  });
+
+  assert.equal(response.ok, true);
+  assert.deepEqual(localCommand, {
+    command: "open_folder",
+    platform: "hexlet",
+    githubUrl: "https://github.com/student/project",
+  });
+});
+
+test("clones Hexlet materials from the GitHub href without OTUS or OpenRouter data", async () => {
+  let localCommand;
+  globalThis.fetch = async (url, options = {}) => {
+    assert.equal(url, "http://127.0.0.1:8765/commands");
+    localCommand = JSON.parse(options.body);
+    return jsonResponse({
+      ok: true,
+      path: "/projects/hexlet/homeworks/student/project",
+      repository: "https://github.com/student/project",
+    });
+  };
+
+  const response = await sendRuntimeMessage({
+    type: "DOWNLOAD_HOMEWORK_MATERIALS",
+    payload: {
+      platform: "hexlet",
+      githubUrl: "https://github.com/student/project",
+    },
+  });
+
+  assert.equal(response.ok, true);
+  assert.deepEqual(localCommand, {
+    command: "clone_student_materials",
+    platform: "hexlet",
+    githubUrl: "https://github.com/student/project",
+  });
+});
+
 test("downloads a student ZIP with the Chrome session before local extraction", async () => {
   const zipUrl = "https://otus.ru/private/materials.zip";
   const expectedPath = "/projects/otus/course/student/hw2";
@@ -235,7 +290,10 @@ test("downloads supported student chat attachments while resolving homework cont
       });
     }
     if (url === "http://127.0.0.1:8765/commands") {
-      return jsonResponse({ ok: true, path: "/projects/otus/course/student/hw1" });
+      return jsonResponse({
+        ok: true,
+        path: "/projects/otus/course/student/hw1",
+      });
     }
     if (url === "https://cdn.otus.ru/media/private/work.docx?hash=1") {
       return {
@@ -263,7 +321,10 @@ test("downloads supported student chat attachments while resolving homework cont
   assert.equal(response.ok, true);
   assert.equal(response.staticFileCount, 1);
   assert.equal(uploads.length, 1);
-  assert.equal(uploads[0].headers["X-OTUS-Student-Path"], "/projects/otus/course/student/hw1");
+  assert.equal(
+    uploads[0].headers["X-OTUS-Student-Path"],
+    "/projects/otus/course/student/hw1"
+  );
   assert.equal(
     decodeURIComponent(uploads[0].headers["X-OTUS-File-Name"]),
     "Работа 1.docx"

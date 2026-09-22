@@ -229,6 +229,11 @@ function quoteTsv(value) {
   return `"${String(value || "").replace(/"/g, '""')}"`;
 }
 
+function getLessonLabel(lesson, index) {
+  const title = `${index + 1}. ${lesson.title || ""}`;
+  return lesson.teacher ? `${title}\n${lesson.teacher}` : title;
+}
+
 function toSheetFormula(names) {
   if (!names) return '""';
   const escaped = names.replace(/"/g, '""');
@@ -242,44 +247,42 @@ export function buildSummaryTableTSV({ lessonCache, masterStudents }) {
     "Online Names",
     "Offline Count",
     "Offline Names",
+    "Visitors total",
     "Did Not Come Count",
     "Did Not Come Names",
     "Poll Count",
+    "Poll Average",
     "Poll Names",
   ];
 
-  const rows = lessonCache.map((lesson) => {
+  const rows = lessonCache.map((lesson, index) => {
     const attendedIds = getAttendedIds(lesson);
     const absentNames = [...masterStudents.entries()]
       .filter(([id]) => !attendedIds.has(id))
       .map(([, name]) => name);
-    const pollUsers = new Map();
 
-    for (const poll of lesson.polls) {
-      for (const stat of poll.stats || []) {
-        for (const answer of stat.answers || []) {
-          for (const user of answer.users || []) {
-            if (user?.id && !pollUsers.has(user.id)) {
-              pollUsers.set(user.id, getUserName(user));
-            }
-          }
-        }
-      }
-    }
+    const { pollsQuestionsCount, pollsAnswersValueCumulative, pollUsers } =
+      getPollsData(lesson.polls || []);
 
     const onlineNames = lesson.onlineUsers.map(getUserName).join(", ");
     const offlineNames = lesson.offlineUsers.map(getUserName).join(", ");
     const offlineCount = lesson.offlineUsers.length || lesson.rawOfflineCounter;
+    const pollAverage =
+      pollsQuestionsCount > 0
+        ? (pollsAnswersValueCumulative / pollsQuestionsCount).toFixed(2)
+        : "N/A";
 
     return [
-      quoteTsv(lesson.title),
+      quoteTsv(getLessonLabel(lesson, index)),
       lesson.onlineUsers.length,
       toSheetFormula(onlineNames),
       offlineCount,
       toSheetFormula(offlineNames),
+      attendedIds.size,
       absentNames.length,
       toSheetFormula(absentNames.join(", ")),
       pollUsers.size,
+      pollAverage,
       toSheetFormula([...pollUsers.values()].join(", ")),
     ].join("\t");
   });
@@ -287,22 +290,72 @@ export function buildSummaryTableTSV({ lessonCache, masterStudents }) {
   return [header.join("\t"), ...rows].join("\n");
 }
 
+function getPollsData(lessonPolls) {
+  const pollUsers = new Map();
+  let pollsQuestionsCount = 0;
+  let pollsAnswersValueCumulative = 0;
+  for (const poll of lessonPolls) {
+    for (const stat of poll.stats || []) {
+      if (stat.average_weight && parseFloat(stat.average_weight)) {
+        pollsQuestionsCount += 1;
+        pollsAnswersValueCumulative += parseFloat(stat.average_weight);
+      }
+
+      for (const answer of stat.answers || []) {
+        for (const user of answer.users || []) {
+          if (user?.id && !pollUsers.has(user.id)) {
+            pollUsers.set(user.id, getUserName(user));
+          }
+        }
+      }
+    }
+  }
+  return { pollsQuestionsCount, pollsAnswersValueCumulative, pollUsers };
+}
+
 export function buildAttendanceTableTSV({ lessonCache, masterStudents }) {
   const header = [
     "Student Name",
     ...lessonCache.map((lesson, index) =>
-      quoteTsv(`L${index + 1}: ${lesson.title || ""}`)
+      quoteTsv(getLessonLabel(lesson, index))
     ),
+    "Attended Webinars",
   ];
 
+  const webinarTotals = lessonCache.map(() => 0);
   const rows = [...masterStudents.entries()].map(([studentId, studentName]) => {
-    const attendance = lessonCache.map((lesson) =>
-      getAttendedIds(lesson).has(studentId) ? '"🟢"' : '"🔴"'
-    );
-    return [quoteTsv(studentName), ...attendance].join("\t");
+    let attendedWebinars = 0;
+    const attendance = lessonCache.map((lesson, lessonIndex) => {
+      const attended = getAttendedIds(lesson).has(studentId);
+      if (attended) {
+        attendedWebinars += 1;
+        webinarTotals[lessonIndex] += 1;
+      }
+      return attended ? '"🟢"' : '"🔴"';
+    });
+    return [quoteTsv(studentName), ...attendance, attendedWebinars].join("\t");
   });
 
-  return [header.join("\t"), ...rows].join("\n");
+  const averageFeedbackRow = [
+    quoteTsv("Average Poll Score"),
+    ...lessonCache.map((lesson) => {
+      const { pollsQuestionsCount, pollsAnswersValueCumulative } = getPollsData(
+        lesson.polls || []
+      );
+      return pollsQuestionsCount > 0
+        ? (pollsAnswersValueCumulative / pollsQuestionsCount).toFixed(2)
+        : "N/A";
+    }),
+    "",
+  ].join("\t");
+
+  const totalsRow = [
+    quoteTsv("Students Attended"),
+    ...webinarTotals,
+    webinarTotals.reduce((total, count) => total + count, 0),
+  ].join("\t");
+
+  return [header.join("\t"), ...rows, averageFeedbackRow, totalsRow].join("\n");
 }
 
 export async function collectWebinarData(
@@ -337,11 +390,17 @@ export async function collectWebinarData(
       `https://otus.ru/api/teacher-lk/programs/${programId}/lesson/${lesson.id}/?lessonId=${lesson.id}&programId=${programId}`,
       requestOptions
     ).then((response) => response.json());
+    const { pollsQuestionsCount, pollsAnswersValueCumulative, pollUsers } =
+      getPollsData(lesson.polls || []);
     lessonCache.push({
       id: lesson.id,
       title: lesson.title,
+      teacher: lesson.teacher,
       scheduleId: lessonData.data?.schedules?.[0]?.id,
       polls: lessonData.data?.polls || [],
+      pollsQuestionsCount,
+      pollsAnswersValueCumulative,
+      pollUsers,
     });
   }
 
@@ -364,11 +423,7 @@ export async function collectWebinarData(
       const visitorData = visitorsData.data || {};
 
       onlineUsers = visitorData.online || [];
-      offlineUsers =
-        visitorData.offline ||
-        visitorData.record?.users ||
-        visitorData.recorded ||
-        [];
+      offlineUsers = visitorData.record?.users || [];
       rawOfflineCounter = visitorData.record?.counter || 0;
 
       [...onlineUsers, ...offlineUsers].forEach((user) => {
@@ -458,9 +513,7 @@ export function parseScoringUrl(rawUrl) {
   }
 
   if (!url.pathname.match(SCORING_PATH_RE)) {
-    throw new Error(
-      "Не удалось определить страницу скоринга по этому адресу."
-    );
+    throw new Error("Не удалось определить страницу скоринга по этому адресу.");
   }
 
   return { isScoring: true };
@@ -475,9 +528,7 @@ export async function fetchGroupsList(fetchImpl = fetch) {
     }
   );
   if (!response.ok) {
-    throw new Error(
-      `Не удалось получить список групп (${response.status}).`
-    );
+    throw new Error(`Не удалось получить список групп (${response.status}).`);
   }
   const payload = await response.json();
   if (!Array.isArray(payload?.data)) {
@@ -525,8 +576,7 @@ export function buildGroupAnalyticsPrompt(students) {
 }
 
 export function buildGroupAnalyticsTSV(results) {
-  const quoteTsv = (value) =>
-    `"${String(value || "").replace(/"/g, '""')}"`;
+  const quoteTsv = (value) => `"${String(value || "").replace(/"/g, '""')}"`;
 
   // Encodes multi-line detail text as a Sheets SUBSTITUTE formula so that
   // pasting into a cell renders each detail item on a separate line.
@@ -567,7 +617,10 @@ export function buildGroupAnalyticsTSV(results) {
       entry.totalCount += count;
 
       // Build detail lines from subsegments: "<Subcategory> <Seniority> <count>"
-      if (Array.isArray(segment.subsegments) && segment.subsegments.length > 0) {
+      if (
+        Array.isArray(segment.subsegments) &&
+        segment.subsegments.length > 0
+      ) {
         for (const sub of segment.subsegments) {
           const subCount = sub.count ?? 0;
           if (subCount === 0) continue;

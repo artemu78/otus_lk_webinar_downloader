@@ -92,6 +92,7 @@ test("fails when no eligible webinar exists", () => {
 const lessons = [
   {
     title: 'Intro "live"',
+    teacher: "Ada Lovelace",
     onlineUsers: [{ id: 1, fullname: "Alice" }],
     offlineUsers: [],
     rawOfflineCounter: 2,
@@ -101,6 +102,7 @@ const lessons = [
   },
   {
     title: "Practice",
+    teacher: "Grace Hopper",
     onlineUsers: [],
     offlineUsers: [{ id: 2, name: "Bob" }],
     rawOfflineCounter: 0,
@@ -113,16 +115,48 @@ const students = new Map([
 ]);
 
 test("generates the summary table independently", () => {
-  const rows = buildSummaryTableTSV({
+  const tsv = buildSummaryTableTSV({
     lessonCache: lessons,
     masterStudents: students,
+  });
+
+  assert.match(tsv, /^Lesson Title\tOnline Count/);
+  assert.match(
+    tsv,
+    /"1\. Intro ""live""\nAda Lovelace"\t1\t"=SUBSTITUTE\(""Alice"", "", "", CHAR\(10\)\)"/
+  );
+  assert.match(tsv, /"2\. Practice\nGrace Hopper"/);
+});
+
+test("counts each visitor once across online and offline attendance", () => {
+  const rows = buildSummaryTableTSV({
+    lessonCache: [
+      {
+        title: "Combined attendance",
+        onlineUsers: [
+          { id: 1, fullname: "Alice" },
+          { id: 2, fullname: "Bob" },
+        ],
+        offlineUsers: [
+          { id: 1, fullname: "Alice" },
+          { id: 3, fullname: "Carol" },
+        ],
+        rawOfflineCounter: 0,
+        polls: [],
+      },
+    ],
+    masterStudents: new Map([
+      [1, "Alice"],
+      [2, "Bob"],
+      [3, "Carol"],
+    ]),
   }).split("\n");
 
-  assert.match(rows[0], /^Lesson Title\tOnline Count/);
   assert.equal(
-    rows[1],
-    '"Intro ""live"""\t1\t"=SUBSTITUTE(""Alice"", "", "", CHAR(10))"\t2\t""\t1\t"=SUBSTITUTE(""Bob"", "", "", CHAR(10))"\t1\t"=SUBSTITUTE(""Alice"", "", "", CHAR(10))"'
+    rows[0],
+    "Lesson Title\tOnline Count\tOnline Names\tOffline Count\tOffline Names\tVisitors total\tDid Not Come Count\tDid Not Come Names\tPoll Count\tPoll Names"
   );
+  assert.equal(rows[1].split("\t")[5], "3");
 });
 
 test("generates the attendance table independently", () => {
@@ -131,9 +165,10 @@ test("generates the attendance table independently", () => {
       lessonCache: lessons,
       masterStudents: students,
     }),
-    'Student Name\t"L1: Intro ""live"""\t"L2: Practice"\n' +
-      '"Alice"\t"🟢"\t"🔴"\n' +
-      '"Bob"\t"🔴"\t"🟢"'
+    'Student Name\t"1. Intro ""live""\nAda Lovelace"\t"2. Practice\nGrace Hopper"\tAttended Webinars\n' +
+      '"Alice"\t"🟢"\t"🔴"\t1\n' +
+      '"Bob"\t"🔴"\t"🟢"\t1\n' +
+      '"Students Attended"\t1\t1\t2'
   );
 });
 
@@ -142,7 +177,15 @@ function createFetchMock() {
     async json() {
       if (url.includes("/get/")) {
         return {
-          data: { modules: [{ lessons: [{ id: 10, title: "Intro" }] }] },
+          data: {
+            modules: [
+              {
+                lessons: [
+                  { id: 10, title: "Intro", teacher: "Ada Lovelace" },
+                ],
+              },
+            ],
+          },
         };
       }
       if (url.includes("/lesson/")) {
@@ -160,11 +203,12 @@ function createFetchMock() {
 
 test("fetches and generates the summary table as a standalone operation", async () => {
   const result = await generateSummaryTableTSV("123", createFetchMock());
-  assert.match(result, /"Intro"\t1/);
+  assert.match(result, /"1\. Intro\nAda Lovelace"\t1/);
 });
 
 test("fetches and generates the attendance table as a standalone operation", async () => {
   const result = await generateAttendanceTableTSV("123", createFetchMock());
+  assert.match(result, /"1\. Intro\nAda Lovelace"/);
   assert.match(result, /"Alice"\t"🟢"/);
 });
 

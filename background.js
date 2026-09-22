@@ -9,6 +9,7 @@ import {
 import {
   EXTENSION_MESSAGES,
   GOOGLE_SHEET_URL,
+  HOMEWORK_PLATFORMS,
   LOCAL_COMMANDS,
   LOCAL_SERVER,
   SESSION_STORAGE_KEYS,
@@ -210,6 +211,20 @@ async function openHomeworkFolder(ids) {
 }
 
 async function downloadHomeworkMaterials(ids) {
+  if (ids?.platform === HOMEWORK_PLATFORMS.HEXLET) {
+    if (typeof ids.githubUrl !== "string" || !ids.githubUrl) {
+      throw new Error(
+        "На странице Hexlet не найдена ссылка на GitHub-репозиторий."
+      );
+    }
+    const folder = await getHomeworkFolder(ids);
+    return sendLocalCommand({
+      command: LOCAL_COMMANDS.CLONE_STUDENT_MATERIALS,
+      ...folder,
+      githubUrl: ids.githubUrl,
+    });
+  }
+
   const messagePayload = await getHomeworkMessages(ids);
   const context =
     typeof ids?.cachedPath === "string" && ids.cachedPath
@@ -290,7 +305,23 @@ function sendHomeworkError(prefix, error, sendResponse) {
 
 async function getHomeworkFolder(ids, existingMessagePayload) {
   if (typeof ids?.cachedPath === "string" && ids.cachedPath) {
-    return { path: ids.cachedPath };
+    return {
+      ...(ids?.platform === HOMEWORK_PLATFORMS.HEXLET
+        ? { platform: HOMEWORK_PLATFORMS.HEXLET }
+        : {}),
+      path: ids.cachedPath,
+    };
+  }
+  if (ids?.platform === HOMEWORK_PLATFORMS.HEXLET) {
+    if (typeof ids.githubUrl !== "string" || !ids.githubUrl) {
+      throw new Error(
+        "На странице Hexlet не найдена ссылка на GitHub-репозиторий."
+      );
+    }
+    return {
+      platform: HOMEWORK_PLATFORMS.HEXLET,
+      githubUrl: ids.githubUrl,
+    };
   }
   return (await getHomeworkContext(ids, existingMessagePayload)).folder;
 }
@@ -344,7 +375,9 @@ async function saveHomeworkStaticFiles(folder, files) {
   for (const { url, filename } of files) {
     const download = await fetch(url, { credentials: "include" });
     if (!download.ok) {
-      throw new Error(`Не удалось скачать файл ${filename} (${download.status}).`);
+      throw new Error(
+        `Не удалось скачать файл ${filename} (${download.status}).`
+      );
     }
     const response = await fetch(LOCAL_SERVER.STATIC_FILE_UPLOAD_URL, {
       method: "POST",
@@ -352,13 +385,17 @@ async function saveHomeworkStaticFiles(folder, files) {
         "Content-Type": "application/octet-stream",
         "X-OTUS-Student-Path": folder.path ?? "",
         "X-OTUS-Student-Folder": encodeURIComponent(JSON.stringify(folder)),
-        "X-OTUS-File-Name": encodeURIComponent(sanitizeDownloadFilename(filename)),
+        "X-OTUS-File-Name": encodeURIComponent(
+          sanitizeDownloadFilename(filename)
+        ),
       },
       body: await download.arrayBuffer(),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok || result?.ok !== true) {
-      throw new Error(result?.error ?? `Не удалось сохранить файл ${filename}.`);
+      throw new Error(
+        result?.error ?? `Не удалось сохранить файл ${filename}.`
+      );
     }
     saved.push(result);
   }

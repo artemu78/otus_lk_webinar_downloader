@@ -9,9 +9,10 @@ import {
   buildGroupAnalyticsPrompt,
   buildGroupAnalyticsTSV,
 } from "./lib.js";
-import { EXTENSION_MESSAGES } from "./constants.js";
+import { EXTENSION_MESSAGES, HOMEWORK_PLATFORMS } from "./constants.js";
 
 const lessonElement = document.querySelector("#lesson");
+const popupLogo = document.querySelector(".popup-logo");
 const downloadButton = document.querySelector("#download");
 const summaryButton = document.querySelector("#summary");
 const attendanceButton = document.querySelector("#attendance");
@@ -53,8 +54,13 @@ const actionButtons = [...lessonButtons, ...homeworkButtons, ...scoringButtons];
 const statusElement = document.querySelector("#status");
 let lessonIds;
 let homeworkIds;
+let homeworkPlatform;
+let homeworkStorageKey;
+let activeTabId;
 let scoringIds;
 let allGroups = [];
+
+popupLogo.title = `Версия ${chrome.runtime.getManifest().version}`;
 
 function debounce(fn, ms) {
   let timer;
@@ -73,15 +79,28 @@ async function initialize() {
       currentWindow: true,
     });
     const activeUrl = tab?.url ?? "";
+    activeTabId = tab?.id;
     if (activeUrl.startsWith("https://otus.ru/teacher-lk/homework")) {
+      homeworkPlatform = HOMEWORK_PLATFORMS.OTUS;
       homeworkIds = parseHomeworkUrl(activeUrl);
-      for (const button of lessonButtons) button.hidden = true;
-      for (const button of homeworkButtons) button.hidden = false;
-      for (const button of scoringButtons) button.hidden = true;
-      homeworkFolderSetting.hidden = false;
+      configureHomeworkUi();
+      homeworkStorageKey = getHomeworkStorageKey();
       homeworkFolderInput.value =
-        localStorage.getItem(getHomeworkStorageKey()) ?? "";
+        localStorage.getItem(homeworkStorageKey) ?? "";
       lessonElement.textContent = `Студент ${homeworkIds.studentId} · Работа ${homeworkIds.homeworkId}`;
+    } else if (isHexletProjectMembersUrl(activeUrl)) {
+      homeworkPlatform = HOMEWORK_PLATFORMS.HEXLET;
+      homeworkIds = {
+        pageUrl: activeUrl,
+        githubUrl: await findGitHubRepositoryLink(activeTabId),
+      };
+      configureHomeworkUi();
+      homeworkStorageKey = getHomeworkStorageKey();
+      homeworkFolderInput.value =
+        localStorage.getItem(homeworkStorageKey) ?? "";
+      lessonElement.textContent = homeworkIds.githubUrl
+        ? `Hexlet · ${getGitHubRepositoryPath(homeworkIds.githubUrl)}`
+        : "Hexlet · проект студента";
     } else if (activeUrl.startsWith("https://otus.ru/teacher-lk/scoring")) {
       scoringIds = parseScoringUrl(activeUrl);
       for (const button of lessonButtons) button.hidden = true;
@@ -96,11 +115,70 @@ async function initialize() {
     }
     setActionsDisabled(false);
   } catch (error) {
-    lessonElement.textContent = "Занятие OTUS не найдено";
+    lessonElement.textContent = "Поддерживаемая страница не найдена";
     showStatus(
       error instanceof Error ? error.message : "Непредвиденная ошибка.",
       true
     );
+  }
+}
+
+function configureHomeworkUi() {
+  for (const button of lessonButtons) button.hidden = true;
+  for (const button of homeworkButtons) button.hidden = false;
+  for (const button of scoringButtons) button.hidden = true;
+  homeworkFolderSetting.hidden = false;
+}
+
+function isHexletProjectMembersUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    return (
+      url.origin === "https://ru.hexlet.io" &&
+      url.pathname.startsWith("/tutorship/project_members/")
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function findGitHubRepositoryLink(tabId) {
+  if (typeof tabId !== "number") return null;
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: findFirstGitHubRepositoryHref,
+  });
+  return typeof result === "string" ? result : null;
+}
+
+function findFirstGitHubRepositoryHref() {
+  for (const anchor of document.querySelectorAll("a[href]")) {
+    try {
+      const url = new URL(anchor.href);
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (
+        url.protocol === "https:" &&
+        url.hostname.toLowerCase() === "github.com" &&
+        parts.length >= 2
+      ) {
+        return anchor.href;
+      }
+    } catch {
+      // Ignore malformed href values and keep searching.
+    }
+  }
+  return null;
+}
+
+function getGitHubRepositoryPath(githubUrl) {
+  try {
+    const url = new URL(githubUrl, "https://ru.hexlet.io");
+    const parts = url.pathname.split("/").filter(Boolean);
+    return parts.length >= 2
+      ? `${parts[0]}/${parts[1].replace(/\.git$/i, "")}`
+      : null;
+  } catch {
+    return null;
   }
 }
 
@@ -140,13 +218,15 @@ function saveHomeworkFolderPath() {
 
   const folderPath = homeworkFolderInput.value.trim();
   if (folderPath) {
-    localStorage.setItem(getHomeworkStorageKey(), folderPath);
+    localStorage.setItem(homeworkStorageKey, folderPath);
     homeworkFolderInput.value = folderPath;
     showStatus("Путь к папке сохранён.", false, true);
   } else {
-    localStorage.removeItem(getHomeworkStorageKey());
+    localStorage.removeItem(homeworkStorageKey);
     showStatus(
-      "Сохранённый путь удалён. Следующее действие снова запросит данные OTUS.",
+      homeworkPlatform === HOMEWORK_PLATFORMS.HEXLET
+        ? "Сохранённый путь удалён. Следующее действие снова определит путь по ссылке GitHub."
+        : "Сохранённый путь удалён. Следующее действие снова запросит данные OTUS.",
       false,
       true
     );
@@ -163,7 +243,7 @@ homeworkFolderButton.addEventListener("click", async () => {
   try {
     const result = await chrome.runtime.sendMessage({
       type: EXTENSION_MESSAGES.OPEN_HOMEWORK_FOLDER,
-      payload: getHomeworkPayload(),
+      payload: await getHomeworkPayload(),
     });
     if (!result?.ok) {
       throw new Error(result?.error ?? "Не удалось открыть папку студента.");
@@ -186,12 +266,16 @@ homeworkMaterialsButton.addEventListener("click", async () => {
 
   setActionsDisabled(true);
   homeworkMaterialsButton.textContent = "Скачиваем…";
-  showStatus("Ищем ссылку на GitHub или ZIP в сообщениях студента…");
+  showStatus(
+    homeworkPlatform === HOMEWORK_PLATFORMS.HEXLET
+      ? "Определяем репозиторий студента…"
+      : "Ищем ссылку на GitHub или ZIP в сообщениях студента…"
+  );
 
   try {
     const result = await chrome.runtime.sendMessage({
       type: EXTENSION_MESSAGES.DOWNLOAD_HOMEWORK_MATERIALS,
-      payload: getHomeworkPayload(),
+      payload: await getHomeworkPayload(),
     });
     if (!result?.ok) {
       const error = new Error(
@@ -207,10 +291,10 @@ homeworkMaterialsButton.addEventListener("click", async () => {
       !result.path && staticFileCount > 0
         ? `Скачано файлов из чата: ${staticFileCount}. Они находятся в папке Downloads/OTUS homework materials.`
         : skipped > 0
-        ? `Материалы скачаны в ${result.path}; существующие файлы не перезаписаны: ${skipped}.`
-        : staticFileCount > 0
-          ? `Материалы скачаны в ${result.path}; файлов из чата: ${staticFileCount}.`
-          : `Материалы скачаны в ${result.path}`,
+          ? `Материалы скачаны в ${result.path}; существующие файлы не перезаписаны: ${skipped}.`
+          : staticFileCount > 0
+            ? `Материалы скачаны в ${result.path}; файлов из чата: ${staticFileCount}.`
+            : `Материалы скачаны в ${result.path}`,
       false,
       true
     );
@@ -237,7 +321,7 @@ homeworkResultsButton.addEventListener("click", async () => {
   try {
     const result = await chrome.runtime.sendMessage({
       type: EXTENSION_MESSAGES.READ_HOMEWORK_RESULTS,
-      payload: getHomeworkPayload(),
+      payload: await getHomeworkPayload(),
     });
     if (!result?.ok) {
       throw new Error(
@@ -282,7 +366,7 @@ homeworkWarpButton.addEventListener("click", async () => {
   try {
     const result = await chrome.runtime.sendMessage({
       type: EXTENSION_MESSAGES.OPEN_HOMEWORK_WARP,
-      payload: getHomeworkPayload(),
+      payload: await getHomeworkPayload(),
     });
     if (!result?.ok) {
       throw new Error(result?.error ?? "Не удалось открыть Warp.");
@@ -301,17 +385,34 @@ homeworkWarpButton.addEventListener("click", async () => {
 });
 
 function getHomeworkStorageKey() {
+  if (homeworkPlatform === HOMEWORK_PLATFORMS.HEXLET) {
+    const repositoryPath = getGitHubRepositoryPath(homeworkIds.githubUrl);
+    return repositoryPath
+      ? `oth/hexlet-homework-folder/${repositoryPath}`
+      : `oth/hexlet-homework-folder/page/${encodeURIComponent(homeworkIds.pageUrl)}`;
+  }
   return `oth/homework-folder/${homeworkIds.studentId}/${homeworkIds.homeworkId}`;
 }
 
-function getHomeworkPayload() {
-  const cachedPath = localStorage.getItem(getHomeworkStorageKey());
+async function getHomeworkPayload() {
+  if (homeworkPlatform === HOMEWORK_PLATFORMS.HEXLET) {
+    const discoveredUrl = await findGitHubRepositoryLink(activeTabId);
+    if (discoveredUrl) homeworkIds.githubUrl = discoveredUrl;
+  }
+  const cachedPath = localStorage.getItem(homeworkStorageKey);
+  if (homeworkPlatform === HOMEWORK_PLATFORMS.HEXLET) {
+    return {
+      platform: HOMEWORK_PLATFORMS.HEXLET,
+      githubUrl: homeworkIds.githubUrl,
+      ...(cachedPath ? { cachedPath } : {}),
+    };
+  }
   return cachedPath ? { ...homeworkIds, cachedPath } : { ...homeworkIds };
 }
 
 function rememberHomeworkPath(folderPath) {
   if (typeof folderPath === "string" && folderPath) {
-    localStorage.setItem(getHomeworkStorageKey(), folderPath);
+    localStorage.setItem(homeworkStorageKey, folderPath);
     homeworkFolderInput.value = folderPath;
   }
 }
@@ -439,7 +540,11 @@ function stopPolling() {
 
 function formatTime(ts) {
   if (!ts) return "";
-  return new Date(ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return new Date(ts).toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function formatDuration(startedAt, finishedAt) {
@@ -480,9 +585,10 @@ function renderJobPanel(job, groupTitles) {
     analysisJobLabel.textContent = "Анализ завершён";
     analysisJobTime.textContent = `${formatTime(job.startedAt)} → ${formatTime(job.finishedAt)} · ${duration}`;
     const errCount = job.results.filter((r) => r.error).length;
-    analysisJobStatus.textContent = errCount > 0
-      ? `${job.total} групп(ы), ${errCount} с ошибкой. Проверьте результаты.`
-      : `${job.total} групп(ы) — всё готово.`;
+    analysisJobStatus.textContent =
+      errCount > 0
+        ? `${job.total} групп(ы), ${errCount} с ошибкой. Проверьте результаты.`
+        : `${job.total} групп(ы) — всё готово.`;
     analysisJobKill.disabled = true;
     analysisJobNew.disabled = false;
     analysisJobResults.hidden = !hasResults;
@@ -554,13 +660,17 @@ analysisJobKill.addEventListener("click", async () => {
       type: EXTENSION_MESSAGES.CANCEL_GROUP_ANALYSIS,
       payload: { jobId: meta.jobId },
     });
-    if (!result?.ok) throw new Error(result?.error ?? "Не удалось остановить задание.");
+    if (!result?.ok)
+      throw new Error(result?.error ?? "Не удалось остановить задание.");
     stopPolling();
     const job = await fetchJobStatus(meta.jobId);
     renderJobPanel(job, meta.groupTitles ?? []);
     showStatus("Задание остановлено.", false, true);
   } catch (error) {
-    showStatus(error instanceof Error ? error.message : "Непредвиденная ошибка.", true);
+    showStatus(
+      error instanceof Error ? error.message : "Непредвиденная ошибка.",
+      true
+    );
     analysisJobKill.disabled = false;
   }
 });
@@ -589,9 +699,16 @@ analysisJobCopy.addEventListener("click", async () => {
     const results = JSON.parse(analysisJobCopy.dataset.results ?? "[]");
     const tsv = buildGroupAnalyticsTSV(results);
     await navigator.clipboard.writeText(tsv);
-    showStatus("Результаты скопированы. Вставьте в таблицу (Cmd+V / Ctrl+V).", false, true);
+    showStatus(
+      "Результаты скопированы. Вставьте в таблицу (Cmd+V / Ctrl+V).",
+      false,
+      true
+    );
   } catch (error) {
-    showStatus(error instanceof Error ? error.message : "Не удалось скопировать.", true);
+    showStatus(
+      error instanceof Error ? error.message : "Не удалось скопировать.",
+      true
+    );
   }
 });
 
@@ -603,10 +720,18 @@ analysisJobSheet.addEventListener("click", async () => {
     const sheetResult = await chrome.runtime.sendMessage({
       type: EXTENSION_MESSAGES.OPEN_GOOGLE_SHEET,
     });
-    if (!sheetResult?.ok) throw new Error(sheetResult?.error ?? "Не удалось открыть таблицу.");
-    showStatus("Данные скопированы. Вставьте в таблицу (Cmd+V / Ctrl+V).", false, true);
+    if (!sheetResult?.ok)
+      throw new Error(sheetResult?.error ?? "Не удалось открыть таблицу.");
+    showStatus(
+      "Данные скопированы. Вставьте в таблицу (Cmd+V / Ctrl+V).",
+      false,
+      true
+    );
   } catch (error) {
-    showStatus(error instanceof Error ? error.message : "Непредвиденная ошибка.", true);
+    showStatus(
+      error instanceof Error ? error.message : "Непредвиденная ошибка.",
+      true
+    );
   }
 });
 
@@ -621,7 +746,9 @@ analyzeGroupButton.addEventListener("click", async () => {
     allGroups = await fetchGroupsList();
   } catch (error) {
     showStatus(
-      error instanceof Error ? error.message : "Не удалось загрузить список групп.",
+      error instanceof Error
+        ? error.message
+        : "Не удалось загрузить список групп.",
       true
     );
     setActionsDisabled(false);
@@ -659,8 +786,9 @@ const debouncedAutoSelect = debounce(() => {
 }, 300);
 
 groupPickerRun.addEventListener("click", async () => {
-  const selected = allGroups.filter((g) =>
-    groupPickerList.querySelector(`input[data-group-id="${g.id}"]`)?.checked
+  const selected = allGroups.filter(
+    (g) =>
+      groupPickerList.querySelector(`input[data-group-id="${g.id}"]`)?.checked
   );
   if (selected.length === 0) return;
 
@@ -684,7 +812,9 @@ groupPickerRun.addEventListener("click", async () => {
     );
   } catch (error) {
     showStatus(
-      error instanceof Error ? error.message : "Не удалось загрузить данные студентов.",
+      error instanceof Error
+        ? error.message
+        : "Не удалось загрузить данные студентов.",
       true
     );
     groupPickerRun.disabled = false;
@@ -703,17 +833,26 @@ groupPickerRun.addEventListener("click", async () => {
   });
 
   if (!result?.ok) {
-    showStatus(result?.error ?? "Не удалось запустить анализ на сервере.", true);
+    showStatus(
+      result?.error ?? "Не удалось запустить анализ на сервере.",
+      true
+    );
     setActionsDisabled(false);
     return;
   }
 
-  saveJobMeta(jobId, selected.map((g) => g.title));
+  saveJobMeta(
+    jobId,
+    selected.map((g) => g.title)
+  );
   setActionsDisabled(false);
 
   // Show job panel and start polling
   const initialJob = await fetchJobStatus(jobId);
-  renderJobPanel(initialJob, selected.map((g) => g.title));
+  renderJobPanel(
+    initialJob,
+    selected.map((g) => g.title)
+  );
   startPolling(jobId);
   showStatus("Анализ запущен. Можете закрыть окно — прогресс сохранится.");
 });

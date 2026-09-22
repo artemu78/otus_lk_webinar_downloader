@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   analyzeGroupWithOpenRouter,
+  buildHexletHomeworkFolderPath,
   buildHomeworkFolderPath,
   cancelGroupAnalysisJob,
   cloneRepositoryWithSsh,
@@ -40,6 +41,17 @@ test("builds homework paths with the server OS path implementation", () => {
     groupDate: "2026-04",
   });
   assert.equal(courseCodeToDirectory("Dev-AI-Agents"), "DEV-AI-Agents");
+});
+
+test("builds Hexlet homework paths from the GitHub owner and repository", () => {
+  const root = path.join(path.parse(process.cwd()).root, "projects", "hexlet");
+  assert.equal(
+    buildHexletHomeworkFolderPath(
+      root,
+      "https://github.com/student/project.git?tab=readme"
+    ),
+    path.join(root, "homeworks", "student", "project")
+  );
 });
 
 test("recognizes paths inside an allowed root", () => {
@@ -88,6 +100,34 @@ test("silently creates a missing folder before opening it", async () => {
   assert.equal(result.ok, true);
   assert.equal((await lstat(folder)).isDirectory(), true);
   assert.equal(openedPath, await realpath(folder));
+});
+
+test("opens a Hexlet repository folder under the separate Hexlet root", async () => {
+  const otusRoot = await mkdtemp(path.join(os.tmpdir(), "otus-command-root-"));
+  const hexletRoot = await mkdtemp(
+    path.join(os.tmpdir(), "hexlet-command-root-")
+  );
+  let openedPath;
+
+  const result = await executeCommand(
+    {
+      command: "open_folder",
+      platform: "hexlet",
+      githubUrl: "https://github.com/student/project",
+    },
+    {
+      allowedRoot: otusRoot,
+      allowedRootHexlet: hexletRoot,
+      openFolder: async (candidate) => {
+        openedPath = candidate;
+      },
+    }
+  );
+
+  const expected = path.join(hexletRoot, "homeworks", "student", "project");
+  assert.equal(result.path, await realpath(expected));
+  assert.equal(openedPath, result.path);
+  assert.equal(isPathInsideRoot(result.path, otusRoot), false);
 });
 
 test("uses a cached absolute folder path without rebuilding it", async () => {
@@ -346,6 +386,7 @@ test("requires an .env file and loads the OpenRouter configuration", async () =>
 
   const names = [
     "DEFAULT_ALLOWED_ROOT",
+    "DEFAULT_ALLOWED_ROOT_HEXLET",
     "OPENROUTER_API_KEY",
     "OPENROUTER_URL",
     "OPENROUTER_MODEL",
@@ -358,10 +399,11 @@ test("requires an .env file and loads the OpenRouter configuration", async () =>
   try {
     await writeFile(
       envPath,
-      `DEFAULT_ALLOWED_ROOT=${root}\nOPENROUTER_API_KEY=test-key\nOPENROUTER_URL=https://example.test/chat\nOPENROUTER_MODEL=test/model\nGITHUB_SSH_HOST=artemreva-hub\n`
+      `DEFAULT_ALLOWED_ROOT=${root}\nDEFAULT_ALLOWED_ROOT_HEXLET=${root}/hexlet\nOPENROUTER_API_KEY=test-key\nOPENROUTER_URL=https://example.test/chat\nOPENROUTER_MODEL=test/model\nGITHUB_SSH_HOST=artemreva-hub\n`
     );
     await loadEnvironmentFile(envPath);
     assert.equal(process.env.DEFAULT_ALLOWED_ROOT, root);
+    assert.equal(process.env.DEFAULT_ALLOWED_ROOT_HEXLET, `${root}/hexlet`);
     assert.equal(process.env.OPENROUTER_API_KEY, "test-key");
     assert.equal(process.env.OPENROUTER_URL, "https://example.test/chat");
     assert.equal(process.env.OPENROUTER_MODEL, "test/model");
@@ -398,6 +440,37 @@ test("analyzes messages and clones student materials into the folder root", asyn
   assert.equal(result.repository, "https://github.com/student/fork");
   assert.equal(cloned.repository, "https://github.com/student/fork");
   assert.equal(cloned.candidate, await realpath(folder));
+});
+
+test("clones Hexlet materials directly from the page GitHub URL", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hexlet-command-clone-"));
+  let cloned;
+
+  const result = await executeCommand(
+    {
+      command: "clone_student_materials",
+      platform: "hexlet",
+      githubUrl: "https://github.com/student/project",
+    },
+    {
+      allowedRootHexlet: root,
+      analyzeMessages: async () => {
+        throw new Error("OpenRouter must not be called for Hexlet");
+      },
+      resolveRepository: async (url) => url,
+      cloneRepository: async (repository, candidate) => {
+        cloned = { repository, candidate };
+      },
+    }
+  );
+
+  assert.equal(result.repository, "https://github.com/student/project");
+  assert.deepEqual(cloned, {
+    repository: "https://github.com/student/project",
+    candidate: await realpath(
+      path.join(root, "homeworks", "student", "project")
+    ),
+  });
 });
 
 test("returns a ZIP material for the authenticated extension download", async () => {
@@ -448,6 +521,64 @@ test("clones through the configured SSH host alias", async () => {
   assert.equal(invocation.options.cwd, folder);
 });
 
+test("pulls an initialized repository when the student folder is not empty", async () => {
+  const folder = await mkdtemp(
+    path.join(os.tmpdir(), "otus-command-gh-pull-")
+  );
+  await mkdir(path.join(folder, ".git"));
+  await writeFile(path.join(folder, "README.md"), "existing checkout\n");
+  const invocations = [];
+
+  await cloneRepositoryWithSsh(
+    "https://github.com/student/homework",
+    folder,
+    {
+      run: async (executable, args, options) => {
+        invocations.push({ executable, args, options });
+        return args[0] === "rev-parse" ? "true\n" : "";
+      },
+    }
+  );
+
+  assert.deepEqual(
+    invocations.map(({ executable, args, options }) => ({
+      executable,
+      args,
+      cwd: options.cwd,
+    })),
+    [
+      {
+        executable: "git",
+        args: ["rev-parse", "--is-inside-work-tree"],
+        cwd: folder,
+      },
+      { executable: "git", args: ["pull"], cwd: folder },
+    ]
+  );
+});
+
+test("does not clone over a non-empty folder without a Git repository", async () => {
+  const folder = await mkdtemp(
+    path.join(os.tmpdir(), "otus-command-gh-non-repo-")
+  );
+  await writeFile(path.join(folder, "notes.txt"), "keep me\n");
+  let commandWasRun = false;
+
+  await assert.rejects(
+    cloneRepositoryWithSsh(
+      "https://github.com/student/homework",
+      folder,
+      {
+        run: async () => {
+          commandWasRun = true;
+        },
+      }
+    ),
+    /not an initialized Git repository/
+  );
+  assert.equal(commandWasRun, false);
+});
+
 test("logs the student materials resolve flow without logging message contents", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "otus-command-logs-"));
   const logs = [];
@@ -482,12 +613,16 @@ test("calls OpenRouter with the group analytics system prompt and returns struct
       {
         category: "Developer",
         count: 1,
-        subsegments: [{ subcategory: "Backend", seniority: "Middle", count: 1 }],
+        subsegments: [
+          { subcategory: "Backend", seniority: "Middle", count: 1 },
+        ],
       },
       {
         category: "QA/PM/BA",
         count: 1,
-        subsegments: [{ subcategory: "QA Engineer", seniority: "Junior", count: 1 }],
+        subsegments: [
+          { subcategory: "QA Engineer", seniority: "Junior", count: 1 },
+        ],
       },
     ],
   };
@@ -560,7 +695,9 @@ test("analyze_group command invokes analyzeGroupWithOpenRouter and returns analy
       {
         category: "Developer",
         count: 1,
-        subsegments: [{ subcategory: "Backend", seniority: "Senior", count: 1 }],
+        subsegments: [
+          { subcategory: "Backend", seniority: "Senior", count: 1 },
+        ],
       },
     ],
   };
@@ -585,13 +722,48 @@ test("analyze_group command invokes analyzeGroupWithOpenRouter and returns analy
 test("starts a background group analysis job and returns its status via getAnalysisJob", async () => {
   const jobId = `test-job-${Date.now()}`;
   const groups = [
-    { id: 1, title: "Group-A", studentCount: 2, prompt: "Name: Alice\nRole: Backend" },
+    {
+      id: 1,
+      title: "Group-A",
+      studentCount: 2,
+      prompt: "Name: Alice\nRole: Backend",
+    },
     { id: 2, title: "Group-B", studentCount: 1, prompt: "Name: Bob\nRole: QA" },
   ];
 
   const analysisResults = new Map([
-    ["Group-A", { summary: "Mostly backend.", total: 2, segments: [{ category: "Developer", count: 2, subsegments: [{ subcategory: "Backend", seniority: "Middle", count: 2 }] }] }],
-    ["Group-B", { summary: "One QA.", total: 1, segments: [{ category: "QA/PM/BA", count: 1, subsegments: [{ subcategory: "QA Engineer", seniority: "Junior", count: 1 }] }] }],
+    [
+      "Group-A",
+      {
+        summary: "Mostly backend.",
+        total: 2,
+        segments: [
+          {
+            category: "Developer",
+            count: 2,
+            subsegments: [
+              { subcategory: "Backend", seniority: "Middle", count: 2 },
+            ],
+          },
+        ],
+      },
+    ],
+    [
+      "Group-B",
+      {
+        summary: "One QA.",
+        total: 1,
+        segments: [
+          {
+            category: "QA/PM/BA",
+            count: 1,
+            subsegments: [
+              { subcategory: "QA Engineer", seniority: "Junior", count: 1 },
+            ],
+          },
+        ],
+      },
+    ],
   ]);
 
   const result = startGroupAnalysisJob(
@@ -655,7 +827,9 @@ test("start_group_analysis command fires and returns the jobId immediately", asy
     {
       command: "start_group_analysis",
       jobId,
-      groups: [{ id: 3, title: "Cmd-Group", studentCount: 1, prompt: "Name: Carol" }],
+      groups: [
+        { id: 3, title: "Cmd-Group", studentCount: 1, prompt: "Name: Carol" },
+      ],
     },
     {
       startJob: (msg) => ({ jobId: msg.jobId, total: msg.groups.length }),
@@ -713,7 +887,12 @@ test("records network errors per-group without aborting the job", async () => {
       jobId,
       groups: [
         { id: 1, title: "Group-OK", studentCount: 1, prompt: "Name: Alice" },
-        { id: 2, title: "Group-Net-Fail", studentCount: 1, prompt: "Name: Bob" },
+        {
+          id: 2,
+          title: "Group-Net-Fail",
+          studentCount: 1,
+          prompt: "Name: Bob",
+        },
       ],
     },
     {
@@ -738,11 +917,21 @@ test("cancels a running job and sets finishedAt", async () => {
   const jobId = `test-cancel-${Date.now()}`;
   // Use a never-resolving group to keep the job running
   let resolveBlock;
-  const blockingPromise = new Promise((resolve) => { resolveBlock = resolve; });
+  const blockingPromise = new Promise((resolve) => {
+    resolveBlock = resolve;
+  });
 
   startGroupAnalysisJob(
-    { jobId, groups: [{ id: 1, title: "Group-Block", studentCount: 1, prompt: "x" }] },
-    { analyzeGroup: async () => { await blockingPromise; return { analysis: {} }; } }
+    {
+      jobId,
+      groups: [{ id: 1, title: "Group-Block", studentCount: 1, prompt: "x" }],
+    },
+    {
+      analyzeGroup: async () => {
+        await blockingPromise;
+        return { analysis: {} };
+      },
+    }
   );
 
   const before = Date.now();
@@ -769,10 +958,7 @@ test("rejects cancelling a job that is not running", async () => {
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(getAnalysisJob(jobId).status, "done");
 
-  assert.throws(
-    () => cancelGroupAnalysisJob(jobId),
-    /not running/
-  );
+  assert.throws(() => cancelGroupAnalysisJob(jobId), /not running/);
 });
 
 test("sets finishedAt when job completes normally", async () => {
@@ -792,7 +978,12 @@ test("cancel_group_analysis command delegates to cancelJob option", async () => 
   let cancelledId;
   const result = await executeCommand(
     { command: "cancel_group_analysis", jobId: "job-xyz" },
-    { cancelJob: (id) => { cancelledId = id; return { jobId: id, status: "cancelled" }; } }
+    {
+      cancelJob: (id) => {
+        cancelledId = id;
+        return { jobId: id, status: "cancelled" };
+      },
+    }
   );
   assert.equal(result.ok, true);
   assert.equal(result.command, "cancel_group_analysis");
